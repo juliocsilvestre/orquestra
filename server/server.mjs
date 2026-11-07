@@ -1352,6 +1352,15 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === '/mensagem' && req.method === 'GET') {
+    // texto completo de uma mensagem da equipe: procura na conversa de quem recebeu (e de quem enviou)
+    const p = projOf(url); const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+    const alvo = norm(url.searchParams.get('texto')).slice(0, 80); let achou = '';
+    if (p && alvo.length > 10) for (const id of [url.searchParams.get('para'), url.searchParams.get('de')].filter(Boolean)) {
+      const it = [...(p.chat[id] || [])].reverse().find((x) => x.kind === 'text' && norm(x.text).includes(alvo)); if (it) { achou = it.text; break; }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ texto: achou }));
+  }
   if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: true, code: CODE_MTIME, projects: projects.map((p) => p.id), perf })); }
   if (url.pathname === '/accounts') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify(accounts())); }
   if (url.pathname === '/rooms') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(rooms())); }

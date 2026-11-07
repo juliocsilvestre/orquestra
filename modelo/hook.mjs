@@ -19,7 +19,7 @@ function agentFromCwd(cwd) {
   const m = cwd.match(/\/\.worktrees\/([^/]+)/);
   return m ? (m[1].startsWith('dev-') ? m[1] : 'dev-' + m[1]) : null;
 }
-const clip = (s) => (s || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+const clip = (s) => (s || '').replace(/[ \t]+/g, ' ').trim().slice(0, 4000); // a mensagem inteira (o feed resume na tela)
 
 function parse(cmd, from) {
   const ev = [];
