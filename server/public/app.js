@@ -314,8 +314,8 @@ function renderRooms() {
   const el = document.getElementById('rooms');
   const bl = ROOMS.filter((r) => r.id !== PROJECT && r.blocked).length;
   el.innerHTML = `<button data-room="" title="Ver o prédio (todas as salas)">← Prédio${bl ? ' <span class="dot bad"></span>' : ''}</button>
-    <select id="roomSel">${ROOMS.map((r, i) => `<option value="${esc(r.id)}" ${r.id === PROJECT ? 'selected' : ''}>${i + 1}º · ${esc(r.brand)}${r.blocked ? ' (!)' : r.working ? ' (…)' : ''}</option>`).join('')}<option value="__novo">＋ Adicionar andar…</option></select>`;
-  document.getElementById('roomSel').onchange = (e) => { if (e.target.value === '__novo') { e.target.value = PROJECT; return import('./andar.js').then((m) => m.abrirNovoAndar()); } if (e.target.value !== PROJECT) goRoom(e.target.value); };
+    <select id="roomSel">${ROOMS.map((r, i) => `<option value="${esc(r.id)}" ${r.id === PROJECT ? 'selected' : ''}>${i + 1}º · ${esc(r.brand)}${r.blocked ? ' (!)' : r.working ? ' (…)' : ''}</option>`).join('')}<option value="__novo">＋ Adicionar andar…</option><option value="__ger">⚙ Gerenciar prédio…</option></select>`;
+  document.getElementById('roomSel').onchange = (e) => { if (e.target.value === '__novo') { e.target.value = PROJECT; return import('./andar.js').then((m) => m.abrirNovoAndar()); } if (e.target.value === '__ger') { e.target.value = PROJECT; return import('./andar.js').then((m) => m.abrirGerenciar()); } if (e.target.value !== PROJECT) goRoom(e.target.value); };
   if (!doors.length) buildDoors(); else updateDoorLabels();
 }
 document.getElementById('rooms').addEventListener('click', (e) => { const b = e.target.closest('button[data-room]'); if (b) goRoom(b.dataset.room); });
@@ -1190,7 +1190,7 @@ async function termLib() {
 }
 function termStatus() {
   const vivo = !!S.agents?.boss;
-  const bt = document.getElementById('termBoss'); if (bt) bt.style.display = vivo ? 'none' : '';
+  const bt = document.getElementById('termBoss'); if (bt) { bt.style.display = vivo ? 'none' : ''; bt.textContent = `▶ Iniciar Boss (= ${UI.atalho || PROJECT})`; bt.title = `O mesmo que digitar ${UI.atalho || PROJECT} num terminal do Herdr`; }
   document.querySelectorAll('#term [data-tw]').forEach((b) => b.classList.toggle('on', b.dataset.tw === termQual));
 }
 function termFit() { if (term && fit && tab === 'term') { try { fit.fit(); } catch {} if (tws?.readyState === 1) tws.send(JSON.stringify({ t: 'r', c: term.cols, r: term.rows })); } }
