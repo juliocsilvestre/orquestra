@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cria um andar (projeto) novo no Orquestra: Boss + um dev residente por repo + QA + GitHub.
+# Cria um andar (projeto) novo no Orquestra: Boss + um dev residente por repo + QA + GitHub + Revisor.
 #
 #   ./novo-andar.sh <pasta-do-projeto> [--id loja] [--titulo "Loja Online"] [--contas 1|2] [--base main]
 #
@@ -82,6 +82,9 @@ ui.update({"title": titulo, "brand": titulo if len(titulo) <= 14 else titulo.spl
            "about": ui.get("about", f"{titulo}: " + ", ".join(repos))})
 json.dump({**old, "project_id": pid, "ui": ui, "sessoes": old.get("sessoes", {"boss": "nova", "equipe": "nova", "memoria": True})}, open(cfg, "w"), indent=2, ensure_ascii=False)
 PY
+
+# agente revisor (o que outros devs sobem)
+bash "$REPO/adicionar-revisor.sh" "$PROJ" >/dev/null
 
 # 2) servidor central em ~/.orquestra
 mkdir -p "$OH/server" "$OH/data"

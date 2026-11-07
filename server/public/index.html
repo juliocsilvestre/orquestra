@@ -40,7 +40,14 @@
   #scrText { flex: 1; margin: 0; padding: 12px; overflow: auto; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: #d9d2ca; white-space: pre-wrap; }
   #screen .vt { display: flex; gap: 4px; } #screen .vt button { margin: 0; } #screen .vt button.on { background: var(--accent); color: #1b1612; border-color: var(--accent); }
   #scrChat { flex: 1; overflow: auto; padding: 12px; display: block; }
-  #scrSess { flex: 1; overflow: auto; padding: 12px; font-size: 12.5px; }
+  #scrSess, #scrSkills, #scrInstr { flex: 1; overflow: auto; padding: 12px; font-size: 12.5px; }
+  .fonte { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; } .fonte > summary { cursor: pointer; padding: 8px 10px; list-style: none; display: flex; gap: 8px; align-items: center; } .fonte > summary b { flex: none; } .fonte > summary .note { margin: 0 0 0 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fonte .sk { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 7px 10px; border-top: 1px solid var(--line); align-items: center; } .sk .sm { color: var(--muted); font-size: 11.5px; } .sk .bt { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .sk.off { opacity: .55; } .bdg.bad { border-color: var(--blocked); color: var(--blocked); }
+  .frm label { display: block; margin: 10px 0 4px; font-size: 12.5px; } .frm input, .frm select, .frm textarea { width: 100%; box-sizing: border-box; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font: inherit; font-size: 13px; }
+  .frm textarea { font-family: Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45; } .frm .lin { display: flex; gap: 10px; } .frm .lin > div { flex: 1; } .frm small { color: var(--muted); display: block; margin-top: 3px; } .frm .ck { display: flex; gap: 8px; align-items: center; margin-top: 10px; } .frm .ck input { width: auto; }
+  .mdl.wide { width: min(720px, 94vw); max-height: 90vh; overflow: auto; }
+  #novoAg { width: 100%; margin: 0 0 10px; background: transparent; color: var(--accent); border: 1px dashed var(--accent); border-radius: 10px; padding: 8px; cursor: pointer; font: inherit; font-weight: 600; }
   .ssAct { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; } .ssAct .note { flex-basis: 100%; margin: 0; }
   .sb { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; } .sb:hover { border-color: var(--accent); } .sb.pri { background: var(--accent); color: #1b1612; border-color: var(--accent); font-weight: 600; } .sb:disabled { opacity: .5; cursor: default; }
   .mem { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; background: #15120f; } .mem summary { cursor: pointer; } .mem pre { white-space: pre-wrap; margin: 8px 0 0; font-size: 12px; color: #cfc6bd; }
@@ -136,6 +143,23 @@
   .bubble small { display: block; font-weight: 700; color: var(--k); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
   #empty { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); color: var(--muted); background: rgba(28,24,21,.9); border: 1px solid var(--line); padding: 8px 14px; border-radius: 10px; display: none; }
   #panel { flex: 1; overflow-y: auto; padding: 18px; display: none; }
+  #git { flex: 1; display: none; min-width: 0; }
+  #gitList { width: 250px; flex: none; overflow-y: auto; border-right: 1px solid var(--line); padding: 10px; }
+  #gitList .gr { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; } #gitList .gr.on { border-color: var(--accent); background: #1c1714; }
+  #gitList .gr b { display: block; font-size: 13px; } #gitList .gr .sm { color: var(--muted); font-size: 11.5px; } #gitList h5 { margin: 10px 2px 6px; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  #gitDet { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 16px; font-size: 13px; }
+  .gbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; } .gbar .br { font-weight: 700; font-size: 14px; } .gbar .sm { color: var(--muted); }
+  .gfiles { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0 12px; } .gfiles h6 { margin: 0; padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; } .gfiles h6 .sb { margin-left: auto; }
+  .gf { display: flex; gap: 8px; align-items: center; padding: 5px 10px; border-top: 1px solid #221d19; cursor: pointer; font-family: Menlo, Consolas, monospace; font-size: 12px; } .gf:first-of-type { border-top: 0; } .gf:hover { background: #1a1512; } .gf.sel { background: #24190f; }
+  .gf .x { width: 18px; text-align: center; font-weight: 700; } .gf .x.M { color: #f2c14e; } .gf .x.A, .gf .x.U { color: #4fd18b; } .gf .x.D { color: #ff6b6b; } .gf .x.R { color: #5aa9ff; } .gf .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .gf .bl { color: var(--blocked); font-family: inherit; font-size: 11px; }
+  .gdiff { background: #0b0908; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 12px/1.45 Menlo, Consolas, monospace; white-space: pre; overflow: auto; max-height: 340px; margin-bottom: 12px; } .gdiff .a { color: #4fd18b; } .gdiff .r { color: #ff7b7b; } .gdiff .h { color: #5aa9ff; }
+  .gcommit textarea { width: 100%; box-sizing: border-box; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; } .gcommit .gbar { margin-top: 8px; }
+  .gregras { color: var(--muted); font-size: 11.5px; border-left: 3px solid var(--line); padding: 4px 10px; margin: 12px 0; } .glog div { font-size: 12px; color: #cfc6bd; padding: 2px 0; } .glog code { color: var(--accent); }
+  #term { flex: 1; display: none; flex-direction: column; min-width: 0; background: #0b0908; }
+  #term .tbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #term .tbar .note { margin: 0 auto 0 4px; } #term .vt { display: flex; gap: 4px; }
+  #term .vt button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12.5px; } #term .vt button.on { background: var(--accent); color: #1b1612; border-color: var(--accent); }
+  #termBox { flex: 1; min-height: 0; padding: 6px 4px 4px 10px; } #termBox .xterm { height: 100%; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
   .tile { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
   .tile .v { font-size: 24px; font-weight: 650; } .tile .l { color: var(--muted); font-size: 12px; }
@@ -156,7 +180,7 @@
 <header>
   <h1>Orquestra <span></span></h1>
   <div class="tabs" id="rooms" title="Salas (projetos)"></div>
-  <div class="tabs"><button data-tab="office" class="on">Escritório</button><button data-tab="panel">Painel</button></div><button id="cfgBtn" class="cfgb" title="Configurações das sessões">⚙</button>
+  <div class="tabs"><button data-tab="office" class="on">Escritório</button><button data-tab="panel">Painel</button><button data-tab="term" title="Terminal do andar: o Boss, /exit, rodar comandos">Terminal</button><button data-tab="git" title="Adicionar, commitar, enviar e abrir MR/PR">Git</button></div><button id="cfgBtn" class="cfgb" title="Configurações das sessões">⚙</button>
   <div class="spacer"></div>
   <div id="accts"></div>
   <div id="srv" style="display:flex;gap:12px"></div>
@@ -166,9 +190,11 @@
 </header>
 <main>
   <div id="office"><div id="empty">Nenhum Boss rodando no Herdr. Rode <code>../bin/boss.sh</code> num terminal do Herdr.</div><div id="flow"></div><div id="srvPanel"></div><div id="toasts"></div><div id="feed"></div>
-    <div id="screen"><div class="bar"><b id="scrTitle"></b><span class="vt"><button data-vt="chat" class="on">Conversa</button><button data-vt="tela">Tela</button><button data-vt="sess">Sessões</button></span><span class="note">ao vivo · aprovações no Herdr</span><button id="scrClose">fechar</button></div><div id="scrChat"></div><pre id="scrText" style="display:none">…</pre><div id="scrSess" style="display:none"></div></div>
+    <div id="screen"><div class="bar"><b id="scrTitle"></b><span class="vt"><button data-vt="chat" class="on">Conversa</button><button data-vt="tela">Tela</button><button data-vt="sess">Sessões</button><button data-vt="skills">Skills</button><button data-vt="instr">Instruções</button></span><span class="note">ao vivo · aprovações no Herdr</span><button id="scrClose">fechar</button></div><div id="scrChat"></div><pre id="scrText" style="display:none">…</pre><div id="scrSess" style="display:none"></div><div id="scrSkills" style="display:none"></div><div id="scrInstr" style="display:none"></div></div>
   </div>
   <div id="panel"></div>
+  <div id="git"><div id="gitList"></div><div id="gitDet"><div class="note" style="padding:20px">Escolha um repositório.</div></div></div>
+  <div id="term"><div class="tbar"><span class="vt"><button data-tw="boss" class="on">Boss</button><button data-tw="andar">Terminal do andar</button></span><span id="termSt" class="note"></span><button id="termBoss" class="sb pri" style="display:none">▶ Iniciar Boss</button><button id="termRe" class="sb">reconectar</button></div><div id="termBox"></div></div>
   <aside id="side">
     <div id="cards"></div>
     <div id="composer">

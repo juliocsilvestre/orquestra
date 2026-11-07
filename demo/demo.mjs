@@ -25,6 +25,7 @@ const PROJ = {
       monitor: { title: 'Monitor', sub: 'logs, métricas e alertas', color: '#ef476f', decor: 'screen' },
       qa: { title: 'QA', sub: 'valida no navegador (Playwright)', color: '#e9ff70', decor: 'qa' },
       github: { title: 'GitHub', sub: 'PRs e checks', color: '#ff6b35', decor: 'gitlab' },
+      revisor: { title: 'Revisor', sub: 'o que outros devs subiram', color: '#38bdf8', decor: 'revisor' },
     },
     about: 'E-commerce de exemplo: API, site, app e serviço de pagamentos.',
     services: [['srv-api', 'api', 'npm run dev'], ['srv-web', 'web', 'npm run dev']],
@@ -151,6 +152,10 @@ async function roteiro() {
     ev(L, { from: 'boss', to: 'dev-api', kind: 'approve', text: 'aprovado' }); ev(L, { from: 'boss', to: 'dev-web', kind: 'approve', text: 'aprovado' }); await sleep(1500);
     ev(L, { from: 'boss', to: 'github', kind: 'ask', text: 'abrir PR do cupom (api + web)' }); st(L, 'github', 'working'); await sleep(3000);
     say(L, 'github', 'agent', 'PR **#42** aberto, checks verdes.'); ev(L, { from: 'github', to: 'boss', kind: 'report', text: 'PIPELINE ok — PR #42 aberto, checks verdes' }); st(L, 'github', 'idle'); st(L, 'boss', 'idle');
+    // alguém de fora subiu algo na develop: o revisor analisa e avisa o Boss
+    st(L, 'revisor', 'working'); await sleep(3000);
+    say(L, 'revisor', 'agent', 'Revisei 3 commits da Ana em origin/develop: novo filtro de pedidos por status. CI verde, sem conflito com o seu repo — só a tarefa do dev-web mexe no mesmo arquivo.');
+    ev(L, { from: 'revisor', to: 'boss', kind: 'report', text: 'NOVO NO UPSTREAM web origin/develop: filtro de pedidos por status (Ana) — pode puxar: com cuidado — relatório revisor/2026-11-07-web-develop.md' }); st(L, 'revisor', 'idle'); await sleep(3000);
     // o outro andar também trabalha
     ev('app', { from: 'voce', to: 'boss', kind: 'user', text: 'Gráfico de gastos por categoria no app' }); st('app', 'boss', 'working'); await sleep(1500);
     ev('app', { from: 'boss', to: 'dev-app', kind: 'delegate', text: 'gráfico de gastos por categoria' }); st('app', 'dev-app', 'working'); st('app', 'boss', 'idle');

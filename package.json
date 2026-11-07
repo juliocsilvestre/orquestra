@@ -28,10 +28,14 @@
       "main.cjs",
       "preload.cjs",
       "server/**/*",
+      "modelo/**/*",
+      "adicionar-revisor.sh",
       "package.json"
     ],
     "asarUnpack": [
-      "server/**/*"
+      "server/**/*",
+      "modelo/**/*",
+      "adicionar-revisor.sh"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -56,9 +60,9 @@
       "maintainer": "Orquestra contributors <orquestra@users.noreply.github.com>"
     }
   },
-  "homepage": "https://github.com/juliocsilvestre/orquestra",
+  "homepage": "https://github.com/SEU-USUARIO/orquestra",
   "repository": {
     "type": "git",
-    "url": "https://github.com/juliocsilvestre/orquestra.git"
+    "url": "https://github.com/SEU-USUARIO/orquestra.git"
   }
 }
