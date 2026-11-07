@@ -451,7 +451,7 @@ function say(c, e, ms) {
   if (!c.bubble) { c.bubble = document.createElement('div'); c.bubble.className = 'bubble'; labelsLayer.appendChild(c.bubble); }
   const k = KIND[e.kind] || { label: e.kind, css: 'var(--accent)' };
   c.bubble.style.setProperty('--k', k.css);
-  c.bubble.innerHTML = `<small>${esc(k.label)}</small>${esc(e.text || '')}`;
+  c.bubble.innerHTML = `<small>${esc(k.label)}</small>${esc(clip(e.text || '', 220))}`;
   c.bubble.style.display = 'block';
   c.bubbleUntil = performance.now() + ms;
 }
@@ -699,7 +699,8 @@ function setViewTab(tabName) {
   if (tabName === 'tela') { loadScreen(viewAgent); screenTimer = setInterval(() => loadScreen(viewAgent), 2000); }
 }
 function openScreen(id, tabName = 'chat') {
-  viewAgent = id;
+  if (viewAgent !== id) { citacao = null; const q = document.getElementById('scrQuote'); if (q) q.style.display = 'none'; }
+  viewAgent = id; setTimeout(() => montaVia(id, !!citacao), 0);
   document.getElementById('scrTitle').textContent = nmOf(id);
   document.getElementById('screen').style.display = 'flex'; select(id);
   loadChat(id); setViewTab(tabName);
@@ -943,6 +944,48 @@ function renderSide() {
   if (html !== side.dataset.h) { side.dataset.h = html; side.innerHTML = html; }
 }
 
+// clicar numa mensagem: abre a conversa de quem falou, mostra a mensagem inteira e deixa responder (direto ou pelo Boss)
+document.getElementById('feed').addEventListener('click', (ev) => {
+  const it = ev.target.closest('[data-fi]'); if (!it) return; const e = feed[+it.dataset.fi]; if (!e) return;
+  abrirMensagem(e);
+});
+let citacao = null;
+async function abrirMensagem(e) {
+  const quem = e.from === 'voce' ? (e.to || 'boss') : e.from;
+  openScreen(quem, 'chat');
+  citacao = e;
+  const q = document.getElementById('scrQuote'), k = KIND[e.kind] || { label: e.kind, css: 'var(--accent)' };
+  const hora = new Date(e.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const pinta = (t) => { q.style.display = 'block'; q.style.setProperty('--k', k.css); q.innerHTML = `<div class="qh"><span>${hora} · ${esc(nmOf(e.from))} → ${esc(nmOf(e.to))} · <b style="color:${k.css}">${esc(k.label)}</b></span><button id="qX" title="tirar a citação">✕</button></div><div class="qt">${mdLite(t)}</div>`; };
+  pinta(e.text || '');
+  montaVia(quem, true);
+  document.getElementById('scrMsg').focus();
+  // o feed guarda um resumo; a mensagem inteira está na conversa de quem recebeu
+  try { const r = await fetch(`/mensagem?${qs({ p: PROJECT, para: e.to || 'boss', de: e.from || '', texto: (e.text || '').slice(0, 120) })}`, { cache: 'no-store' }).then((x) => x.json()); if (r.texto && citacao === e) pinta(r.texto); } catch {}
+}
+function montaVia(quem, comCitacao = false) {
+  const sel = document.getElementById('scrVia'); if (!sel) return;
+  const nm = nmOf(quem), vivo = !!S.agents[quem];
+  sel.innerHTML = quem === 'boss' ? `<option value="boss">para o Boss</option>`
+    : `<option value="direto">direto para ${esc(nm)}${vivo ? '' : ' (fora do ar)'}</option><option value="boss" ${vivo ? '' : 'selected'}>pelo Boss (ele analisa e fala com ${esc(nm)})</option>`;
+  document.getElementById('scrMsg').placeholder = comCitacao ? `Responder sobre esta mensagem… (⌘+Enter envia)` : `Mensagem para ${nm}… (⌘+Enter envia)`;
+}
+async function enviaDoPainel() {
+  const box = document.getElementById('scrMsg'), txt = box.value.trim(), quem = viewAgent; if (!txt || !quem) return;
+  const via = document.getElementById('scrVia').value, nm = nmOf(quem), c = citacao;
+  const ctx = c ? `Sobre a mensagem de ${nmOf(c.from)} para ${nmOf(c.to)} (${new Date(c.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}): "${(document.querySelector('#scrQuote .qt')?.innerText || c.text || '').slice(0, 1500)}"\n\n` : '';
+  let alvo = quem, texto = ctx ? ctx + txt : txt;
+  if (via === 'boss' && quem !== 'boss') { alvo = 'boss'; texto = `${ctx}O usuário quer falar com ${quem} (${nm}): ${txt}\n\nAnalise o pedido e, se fizer sentido, fale com ${quem} usando ../bin/hcp.sh send ${quem} "<mensagem>" — depois me dê um retorno curto.`; }
+  const st = document.getElementById('sendSt');
+  const r = await fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': S.token || '' }, body: JSON.stringify({ project: PROJECT, agent: alvo, text: texto }) });
+  if (!r.ok) { const m = await r.text(); if (r.status === 404 && alvo !== 'boss') { if (await confirma(`${nm} está fora do ar`, 'Quer mandar pelo Boss? Ele analisa e fala com ele (ou chama o agente).', false, 'Mandar pelo Boss')) { document.getElementById('scrVia').value = 'boss'; return enviaDoPainel(); } return; } return avisa('Não enviou', m); }
+  box.value = ''; st.textContent = alvo === 'boss' && quem !== 'boss' ? `enviado ao Boss — ele vai falar com ${nm}` : `enviado para ${nmOf(alvo)}`;
+  if (alvo === 'boss' && quem !== 'boss') { citacao = null; document.getElementById('scrQuote').style.display = 'none'; openScreen('boss', 'chat'); montaVia('boss'); }
+}
+document.getElementById('scrSend').addEventListener('click', enviaDoPainel);
+document.getElementById('scrMsg').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) enviaDoPainel(); });
+document.getElementById('screen').addEventListener('click', (e) => { if (e.target.id === 'qX') { citacao = null; document.getElementById('scrQuote').style.display = 'none'; montaVia(viewAgent); } });
+
 function renderFeed() {
   const el = document.getElementById('feed');
   const shown = feed.filter((e) => e.kind !== 'wait');
@@ -952,7 +995,7 @@ function renderFeed() {
     const k = KIND[e.kind] || { label: e.kind, css: 'var(--accent)' };
     const nm = (id) => (id === 'boss' ? 'Boss' : id ? parseId(id).title : '?');
     const time = new Date(e.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    return `<div class="fi" style="--k:${k.css}" title="${esc(tidy(e.text))}"><div class="h">${time} · ${esc(nm(e.from))} → ${esc(nm(e.to))} · <b>${esc(k.label)}</b></div><div class="ft">${esc(clip(e.text, 140))}</div></div>`;
+    return `<div class="fi" style="--k:${k.css}" data-fi="${feed.indexOf(e)}" title="clique para abrir a conversa e responder"><div class="h">${time} · ${esc(nm(e.from))} → ${esc(nm(e.to))} · <b>${esc(k.label)}</b></div><div class="ft">${esc(clip(e.text, 140))}</div></div>`;
   }).join('');
 }
 
