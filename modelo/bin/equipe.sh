@@ -84,10 +84,17 @@ Para falar com o Boss use SEMPRE: $ORQ/bin/avisa-boss.sh \"<texto>\" (nunca hc s
   # agente pode ter regras próprias (<pasta>/agente-settings.json) e argumentos extras (<pasta>/agente.args, aceita {PROJ} e {ORQ})
   sett="$ORQ/dev-settings.json"; [ -f "$dir/agente-settings.json" ] && sett="$dir/agente-settings.json"
   xargs_=(); if [ -f "$dir/agente.args" ]; then while IFS= read -r a; do [ -n "$a" ] && xargs_+=("$(printf '%s' "$a" | sed "s#{PROJ}#$PROJ#g; s#{ORQ}#$ORQ#g")"); done < "$dir/agente.args"; fi
+  # skills só deste agente + skills da equipe toda (pastas carregadas com --add-dir; editáveis pelo Orquestra)
+  mkdir -p "$ORQ/skills/$nome/.claude/skills" "$ORQ/skills/_equipe/.claude/skills"
+  # instruções extras definidas pelo usuário no Orquestra (agentes/<nome>.md)
+  if [ -s "$ORQ/agentes/$nome.md" ]; then extra="$extra
+
+INSTRUÇÕES ESPECÍFICAS DESTE AGENTE (definidas pelo usuário — têm prioridade):
+$(cat "$ORQ/agentes/$nome.md")"; fi
   sessao_args equipe "$nome" "$cfg" "$dir"; [ -n "$MEM_TXT" ] && extra="$extra
 
 $MEM_TXT"
-  hc run --bg --no-notify --label "orq.projeto=$PROJ_ID" --name "$(tn "$nome")" --cwd "$dir" -- env ${cfg:+"CLAUDE_CONFIG_DIR=$cfg"} claude ${SESS_ARGS[@]+"${SESS_ARGS[@]}"} ${mdl:+--model "$mdl"} --settings "$sett" ${xargs_[@]+"${xargs_[@]}"} --append-system-prompt "$extra" >/dev/null \
+  hc run --bg --no-notify --label "orq.projeto=$PROJ_ID" --name "$(tn "$nome")" --cwd "$dir" -- env ${cfg:+"CLAUDE_CONFIG_DIR=$cfg"} claude ${SESS_ARGS[@]+"${SESS_ARGS[@]}"} ${mdl:+--model "$mdl"} --settings "$sett" --add-dir "$ORQ/skills/$nome" --add-dir "$ORQ/skills/_equipe" ${xargs_[@]+"${xargs_[@]}"} --append-system-prompt "$extra" >/dev/null \
     && echo "+ $nome (conta ${contas[$i]})" || echo "x $nome não subiu"
   sleep 0.8
 done

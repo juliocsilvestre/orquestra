@@ -214,11 +214,11 @@ const SLOTS = [];
 for (const z of [0, 6, 12]) for (const x of [-5, 2.5, 10, 17.5]) SLOTS.push(new THREE.Vector3(x, 0, z));
 // especialistas: cada um com lugar próprio (Taiga e Logs no fundo; QA, GitLab/GitHub e o 5º na coluna da esquerda)
 // especialistas: lugar FIXO por nome (nunca dois na mesma mesa); quem não está na lista pega um lugar livre
-const SPOT = { taiga: new THREE.Vector3(-16.5, 0, -10.2), logs: new THREE.Vector3(-7.5, 0, -10.2), qa: new THREE.Vector3(-16.5, 0, -2.2), gitlab: new THREE.Vector3(-16.5, 0, 5.2), github: new THREE.Vector3(-16.5, 0, 5.2) };
-const SPARE = [new THREE.Vector3(-16.5, 0, 12.2), new THREE.Vector3(-7.5, 0, -3.5), new THREE.Vector3(14.5, 0, -9.8)];
+const SPOT = { taiga: new THREE.Vector3(-16.5, 0, -10.2), logs: new THREE.Vector3(-7.5, 0, -10.2), qa: new THREE.Vector3(-16.5, 0, -2.2), gitlab: new THREE.Vector3(-16.5, 0, 5.2), github: new THREE.Vector3(-16.5, 0, 5.2), revisor: new THREE.Vector3(14.5, 0, -9.8) };
+const SPARE = [new THREE.Vector3(-16.5, 0, 12.2), new THREE.Vector3(-7.5, 0, -3.5), new THREE.Vector3(14.5, 0, -9.8), new THREE.Vector3(-10.5, 0, 12.2), new THREE.Vector3(-10.5, 0, 5.2), new THREE.Vector3(-7.5, 0, 3.5)];
 const SPECIAL_DESK = {};
 { const usados = new Set(); const k = (v) => v.x + ',' + v.z;
-  const BY_DECOR = { kanban: SPOT.taiga, screen: SPOT.logs, qa: SPOT.qa, gitlab: SPOT.gitlab };
+  const BY_DECOR = { kanban: SPOT.taiga, screen: SPOT.logs, qa: SPOT.qa, gitlab: SPOT.gitlab, revisor: SPOT.revisor };
   for (const id of Object.keys(SPECIAL)) { let p = SPOT[id] || BY_DECOR[SPECIAL[id].decor]; if (!p || usados.has(k(p))) p = SPARE.find((x) => !usados.has(k(x))) || SPARE[0]; usados.add(k(p)); SPECIAL_DESK[id] = p; } }
 const SPECIAL_POS = Object.values(SPECIAL_DESK);
 const DOOR = new THREE.Vector3(W / 2 - 1.5, 0, D / 2 - 1.2);
@@ -236,6 +236,18 @@ if (SPECIAL.gitlab || SPECIAL.github) {
   const g = new THREE.Group(); g.position.set(p.x - 2.3, 0, p.z - 0.2); scene.add(g);
   box(0.12, 1.4, 2.2, 0x111111, 0, 2.7, 0, g, mat(0x0d0f12, { emissive: 0x1a120d, emissiveIntensity: 1 })); box(0.15, 2.0, 0.1, 0x333333, 0, 1.0, 0, g);
   [0x4fd18b, 0x4fd18b, 0x5aa9ff, 0x8a7f75].forEach((c, i) => { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.05, 16), mat(c, { emissive: c, emissiveIntensity: 0.9 })); b.rotation.z = Math.PI / 2; b.position.set(0.09, 2.85, -0.75 + i * 0.5); g.add(b); if (i < 3) box(0.03, 0.04, 0.3, 0, 0.08, 2.85, -0.5 + i * 0.5, g, mat(0x8a7f75)); });
+}
+
+// cantinho do Revisor: quadro com o grafo de branches (o que outros devs subiram)
+if (Object.values(SPECIAL).some((x) => x.decor === 'revisor')) {
+  const id = Object.keys(SPECIAL).find((k) => SPECIAL[k].decor === 'revisor'), p = SPECIAL_DESK[id];
+  const g = new THREE.Group(); g.position.set(p.x + 2.4, 0, p.z - 0.2); scene.add(g);
+  box(0.12, 1.6, 2.2, 0x111111, 0, 2.8, 0, g, mat(0x0d0f12, { emissive: 0x0d1a22, emissiveIntensity: 1 })); box(0.15, 2.0, 0.1, 0x333333, 0, 1.0, 0, g);
+  const linha = (z0, z1, y, c) => box(0.04, 0.05, Math.abs(z1 - z0), 0, -0.08, y, (z0 + z1) / 2, g, mat(c, { emissive: c, emissiveIntensity: 0.8 }));
+  linha(-0.85, 0.85, 3.2, 0x5aa9ff); linha(-0.3, 0.6, 2.6, 0xf2c14e); box(0.04, 0.6, 0.05, 0, -0.08, 2.9, -0.3, g, mat(0xf2c14e, { emissive: 0xf2c14e, emissiveIntensity: 0.8 }));
+  for (const [z, y, c] of [[-0.7, 3.2, 0x5aa9ff], [-0.3, 3.2, 0x5aa9ff], [0.2, 3.2, 0x5aa9ff], [0.7, 3.2, 0x4fd18b], [0, 2.6, 0xf2c14e], [0.45, 2.6, 0xf2c14e]]) {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.05, 16), mat(c, { emissive: c, emissiveIntensity: 0.9 })); b.rotation.z = Math.PI / 2; b.position.set(-0.09, y, z); g.add(b);
+  }
 }
 
 let deskN = 0;
@@ -302,8 +314,8 @@ function renderRooms() {
   const el = document.getElementById('rooms');
   const bl = ROOMS.filter((r) => r.id !== PROJECT && r.blocked).length;
   el.innerHTML = `<button data-room="" title="Ver o prédio (todas as salas)">← Prédio${bl ? ' <span class="dot bad"></span>' : ''}</button>
-    <select id="roomSel">${ROOMS.map((r, i) => `<option value="${esc(r.id)}" ${r.id === PROJECT ? 'selected' : ''}>${i + 1}º · ${esc(r.brand)}${r.blocked ? ' (!)' : r.working ? ' (…)' : ''}</option>`).join('')}</select>`;
-  document.getElementById('roomSel').onchange = (e) => e.target.value !== PROJECT && goRoom(e.target.value);
+    <select id="roomSel">${ROOMS.map((r, i) => `<option value="${esc(r.id)}" ${r.id === PROJECT ? 'selected' : ''}>${i + 1}º · ${esc(r.brand)}${r.blocked ? ' (!)' : r.working ? ' (…)' : ''}</option>`).join('')}<option value="__novo">＋ Adicionar andar…</option></select>`;
+  document.getElementById('roomSel').onchange = (e) => { if (e.target.value === '__novo') { e.target.value = PROJECT; return import('./andar.js').then((m) => m.abrirNovoAndar()); } if (e.target.value !== PROJECT) goRoom(e.target.value); };
   if (!doors.length) buildDoors(); else updateDoorLabels();
 }
 document.getElementById('rooms').addEventListener('click', (e) => { const b = e.target.closest('button[data-room]'); if (b) goRoom(b.dataset.room); });
@@ -386,7 +398,15 @@ function ensureChar(id) {
   chars.set(id, c);
   return c;
 }
+function aprender(id, motivo = 'as novas instruções') {
+  const c = chars.get(id); if (!c) return false;
+  c.aprendendo = true; c.podeVoltar = false; c.foraMs = 3500; c.speed = 1.6;
+  say(c, { kind: 'servico', text: `vou aprender ${motivo} e já volto` }, 3000);
+  c.mode = 'walking'; c.after = 'aprender'; c.path = [new THREE.Vector3(c.pos.x, 0, c.pos.z + (c.isBoss ? 2.2 : 0.8)), DOOR.clone()];
+  return true;
+}
 function removeChar(c) {
+  if (c.aprendendo) return;
   c.leaving = true; c.path = [DOOR.clone()]; c.mode = 'walking'; c.after = 'gone';
 }
 
@@ -447,6 +467,7 @@ function tick() {
   hand2.rotation.z = -(d.getMinutes() / 60) * Math.PI * 2; hand2.position.set(Math.sin(-hand2.rotation.z) * 0.22, Math.cos(hand2.rotation.z) * 0.22, 0.03);
 
   for (const c of [...chars.values()]) {
+    if (c.mode === 'fora' && now > c.voltaEm && c.podeVoltar !== false) { c.g.visible = true; c.label.style.opacity = ''; c.mode = 'walking'; c.after = 'home'; c.path = [c.home.clone()]; c.aprendendo = false; say(c, { kind: 'servico', text: 'voltei — já com as novas instruções ✓' }, 4000); setTimeout(() => (c.hopT = 1.2), 2600); }
     // movimento
     if (c.mode === 'walking') {
       const target = c.path[0];
@@ -459,6 +480,8 @@ function tick() {
             c.mode = 'talking'; say(c, c.job.e, 3800);
             c.talkUntil = now + 3800;
             const tgt = c.job.to; if (tgt) tgt.attentionUntil = now + 3800;
+          } else if (c.after === 'aprender') {
+            c.mode = 'fora'; c.g.visible = false; c.label.style.opacity = '.35'; c.voltaEm = now + (c.foraMs || 3500);
           } else if (c.after === 'gone') {
             scene.remove(c.g); c.label.remove(); c.bubble?.remove(); chars.delete(c.id); continue;
           } else { c.mode = 'home'; c.speed = 1; c.alarm = false; nextVisit(c); }
@@ -563,7 +586,7 @@ function syncChars() {
     c.label.className = 'label' + (st === 'blocked' ? ' blocked' : '');
     c.label.innerHTML = `<span class="dot" style="background:${hex(colorFor(id))}"></span>${esc(title)}${st === 'blocked' ? ' · precisa de você' : st === 'done' ? ' ✓' : ''}`;
   }
-  for (const c of chars.values()) if (!live.has(c.id) && !c.leaving) removeChar(c);
+  for (const c of chars.values()) { if (c.aprendendo && live.has(c.id) && c.mode === 'fora' && c.saiuDoAr) c.podeVoltar = true; if (c.aprendendo && !live.has(c.id)) c.saiuDoAr = true; if (!live.has(c.id) && !c.leaving) removeChar(c); }
   document.getElementById('empty').style.display = S.hcOk && !live.has('boss') ? 'block' : 'none';
 }
 
@@ -617,11 +640,12 @@ document.getElementById('cards').addEventListener('click', async (e) => {
       const r = await fetch('/agent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': S.token || '' }, body: JSON.stringify({ project: PROJECT, agent: ag, action }) });
       const j = await r.json().catch(() => ({}));
       st.textContent = r.ok ? (action === 'start' ? `${nm} está vindo` : action === 'stop' ? `${nm} dispensado` : `${nm} reiniciado`) : (j.out || 'falhou');
-      if (!r.ok && ag === 'boss') avisa('Como chamar o Boss', j.out);
+      if (!r.ok) avisa('Não deu certo', j.out || 'falhou');
     } catch (err) { st.textContent = 'erro: ' + err.message; }
     b.disabled = false;
     return;
   }
+  const cf = e.target.closest('[data-cfg]'); if (cf) { e.stopPropagation(); return openScreen(cf.dataset.cfg, 'instr'); }
   const sc = e.target.closest('[data-screen]'); if (sc) { e.stopPropagation(); return openScreen(sc.dataset.screen); }
   const c = e.target.closest('.card'); if (c) select(c.dataset.id);
 });
@@ -666,7 +690,11 @@ function setViewTab(tabName) {
   document.getElementById('scrChat').style.display = tabName === 'chat' ? 'block' : 'none';
   document.getElementById('scrText').style.display = tabName === 'tela' ? 'block' : 'none';
   document.getElementById('scrSess').style.display = tabName === 'sess' ? 'block' : 'none';
+  document.getElementById('scrSkills').style.display = tabName === 'skills' ? 'block' : 'none';
+  document.getElementById('scrInstr').style.display = tabName === 'instr' ? 'block' : 'none';
   if (tabName === 'sess') loadSess(viewAgent);
+  if (tabName === 'skills') loadSkills(viewAgent);
+  if (tabName === 'instr') loadInstr(viewAgent);
   clearInterval(screenTimer);
   if (tabName === 'tela') { loadScreen(viewAgent); screenTimer = setInterval(() => loadScreen(viewAgent), 2000); }
 }
@@ -720,6 +748,129 @@ document.getElementById('scrSess').addEventListener('click', async (e) => {
 });
 setInterval(() => { if (viewAgent && viewTab === 'sess' && sessData?.renovando) loadSess(viewAgent); }, 4000);
 
+// ---------------- skills de cada agente ----------------
+let skData = null;
+const qs = (o) => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+async function loadSkills(id) {
+  const box = document.getElementById('scrSkills'); if (!skData || skData.agente?.id !== id) box.innerHTML = '<div class="note">carregando skills…</div>';
+  try { skData = await fetch('/skills?' + qs({ p: PROJECT, agent: id }), { cache: 'no-store' }).then((r) => r.json()); } catch (e) { box.innerHTML = '<div class="note">erro: ' + esc(e.message) + '</div>'; return; }
+  renderSkills();
+}
+function renderSkills() {
+  const d = skData, box = document.getElementById('scrSkills'); if (!d?.fontes) { box.innerHTML = '<div class="note">' + esc(d?.erro || 'sem dados') + '</div>'; return; }
+  const total = d.fontes.reduce((n, f) => n + f.skills.filter((x) => !x.bloqueada).length, 0);
+  const linha = (f, x) => `<div class="sk ${x.desativada || x.bloqueada ? 'off' : ''}"><div><b>${esc(x.plugin ? x.plugin + ':' + x.nome : x.nome)}</b>${x.desativada ? '<span class="bdg">desativada</span>' : ''}${x.bloqueada ? '<span class="bdg bad" title="Bloqueada pelas permissões deste agente">bloqueada</span>' : ''}${x.plugin && !x.ativo ? '<span class="bdg">plugin desligado</span>' : ''}
+      <div class="sm">${esc(x.descricao || '(sem descrição)')}</div></div>
+    <div class="bt"><button class="sb" data-sk="ver" data-arq="${esc(x.arquivo)}">ver</button>${f.editavel ? `${x.desativada ? '' : `<button class="sb" data-sk="editar" data-arq="${esc(x.arquivo)}" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">editar</button>`}<button class="sb" data-sk="${x.desativada ? 'ativar' : 'desativar'}" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">${x.desativada ? 'ativar' : 'desativar'}</button><button class="sb" data-sk="remover" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">remover</button>` : `<button class="sb" data-sk="copiar" data-arq="${esc(x.arquivo)}" data-nome="${esc(x.pasta || x.nome)}" title="Copia para as skills só deste agente (aí dá para editar)">copiar p/ este agente</button>`}</div></div>`;
+  box.innerHTML = `<div class="ssAct"><button class="sb pri" data-sk="nova" data-esc="agente">＋ Nova skill só deste agente</button><button class="sb" data-sk="nova" data-esc="equipe">＋ Nova skill para a equipe toda</button>
+      <p class="note">${total} skill(s) disponível(is) para ${esc(nmOf(d.agente.id))} (conta ${esc(d.agente.conta)}). Criar, editar ou ativar vale nas próximas mensagens, sem reiniciar.</p></div>
+    ${d.fontes.map((f, i) => { const itens = [...f.skills, ...(f.desativadas || [])]; return `<details class="fonte" ${i < 2 || itens.length < 8 ? 'open' : ''}><summary><b>${esc(f.rotulo)}</b><span class="note">${itens.length} · <code title="${esc(f.pasta)}">${esc(tidy(f.pasta))}</code></span></summary>
+      ${itens.length ? itens.map((x) => linha(f, x)).join('') : '<div class="sk"><div class="sm">nenhuma ainda</div></div>'}</details>`; }).join('')}`;
+}
+function skillEditor({ titulo, esc: escopo, nome = '', descricao = '', conteudo = '', travarNome = false }) {
+  const bg = document.createElement('div'); bg.className = 'mbg';
+  bg.innerHTML = `<div class="mdl wide frm" role="dialog" aria-modal="true"><h4>${esc(titulo)}</h4>
+    <div class="lin"><div><label>Nome (vira /nome)</label><input id="skN" value="${esc(nome)}" ${travarNome ? 'readonly' : ''} placeholder="ex.: revisar-sql"></div>
+    <div><label>Para quem</label><select id="skE"><option value="agente" ${escopo !== 'equipe' ? 'selected' : ''}>só ${esc(nmOf(viewAgent))}</option><option value="equipe" ${escopo === 'equipe' ? 'selected' : ''}>a equipe toda deste andar</option></select></div></div>
+    <label>Quando usar (descrição — o agente decide usar a skill por ela)</label><input id="skD" value="${esc(descricao)}" placeholder="ex.: Use ao revisar migrations ou consultas SQL do backend">
+    <label>Instruções da skill (Markdown)</label><textarea id="skC" rows="16" placeholder="Passo a passo, regras, comandos, exemplos…">${esc(conteudo)}</textarea>
+    <small>Dica: uma skill boa diz quando usar, os passos e o que NÃO fazer. Pode colar um SKILL.md inteiro (com --- no topo).</small>
+    <div class="mact"><button class="mc">Cancelar</button><button class="mo">Salvar skill</button></div></div>`;
+  const fim = () => { bg.classList.add('out'); setTimeout(() => bg.remove(), 150); };
+  bg.addEventListener('click', async (e) => {
+    if (e.target === bg || e.target.classList.contains('mc')) return fim();
+    if (!e.target.classList.contains('mo')) return;
+    const r = await post('/skills', { agent: viewAgent, action: 'salvar', escopo: bg.querySelector('#skE').value, nome: bg.querySelector('#skN').value.trim(), descricao: bg.querySelector('#skD').value, conteudo: bg.querySelector('#skC').value }).catch((er) => ({ ok: false, out: er.message }));
+    if (!r.ok) return avisa('Não salvou', r.out || 'falhou');
+    fim(); document.getElementById('sendSt').textContent = r.out; loadSkills(viewAgent);
+    const quem = bg.querySelector('#skE').value === 'equipe' ? null : viewAgent; if (quem && chars.get(quem)) { const c = chars.get(quem); say(c, { kind: 'servico', text: 'aprendi a skill ' + bg.querySelector('#skN').value.trim() + ' ✓' }, 3500); c.hopT = 1.2; }
+  });
+  document.body.appendChild(bg); setTimeout(() => bg.querySelector(travarNome ? '#skD' : '#skN').focus(), 30);
+}
+const separaSkill = (t) => { const m = t.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/); if (!m) return { descricao: '', corpo: t }; const d = (m[1].match(/^description:\s*(.*)$/m) || [])[1] || ''; const outros = m[1].split('\n').filter((l) => !/^(name|description):/.test(l)).join('\n').trim(); return { descricao: d.replace(/^["']|["']$/g, ''), corpo: outros ? `---\n${m[1]}\n---\n${m[2]}` : m[2].replace(/^\n+/, '') }; };
+document.getElementById('scrSkills').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-sk]'); if (!b) return;
+  const act = b.dataset.sk, arq = b.dataset.arq, escopo = b.dataset.esc, nome = b.dataset.nome;
+  const ler = () => fetch('/skill?' + qs({ p: PROJECT, agent: viewAgent, arquivo: arq }), { cache: 'no-store' }).then((r) => r.text());
+  if (act === 'nova') return skillEditor({ titulo: 'Nova skill', esc: escopo });
+  if (act === 'ver') { const t = await ler(); return modal({ title: nome || 'SKILL.md', text: t.length > 6000 ? t.slice(0, 6000) + '\n…' : t, info: true }); }
+  if (act === 'editar') { const t = await ler(), sp = separaSkill(t); return skillEditor({ titulo: 'Editar skill', esc: escopo, nome, descricao: sp.descricao, conteudo: sp.corpo, travarNome: true }); }
+  if (act === 'remover' && !(await confirma(`Remover a skill ${nome}?`, 'Ela sai deste agente (fica guardada em .orquestra/skills/.lixeira).', true, 'Remover'))) return;
+  const body = { agent: viewAgent, action: act, escopo: escopo || 'agente', nome };
+  if (act === 'copiar') { body.de = arq; body.escopo = 'agente'; }
+  const r = await post('/skills', body).catch((er) => ({ ok: false, out: er.message }));
+  if (!r.ok) avisa('Não deu certo', r.out || 'falhou'); else document.getElementById('sendSt').textContent = r.out;
+  loadSkills(viewAgent);
+});
+
+// ---------------- instruções de cada agente ----------------
+async function loadInstr(id) {
+  const box = document.getElementById('scrInstr'); box.innerHTML = '<div class="note">carregando…</div>';
+  let d; try { d = await fetch('/agente?' + qs({ p: PROJECT, agent: id }), { cache: 'no-store' }).then((r) => r.json()); } catch (e) { box.innerHTML = 'erro: ' + esc(e.message); return; }
+  const a = d.agente; if (!a) { box.innerHTML = '<div class="note">Este agente não está na equipe deste andar (dev extra, por exemplo).</div>'; return; }
+  const dica = a.tipo === 'boss' ? 'É o CLAUDE.md do Boss: o que ele sabe do projeto, o fluxo e as regras. Vale ao reiniciar o Boss ou renovar o contexto.' : a.tipo === 'dev' ? 'Instruções EXTRAS deste dev, além do protocolo de todos os devs (ex.: padrões do repo, cuidados, o que nunca mexer). Vale quando ele reiniciar.' : 'É o CLAUDE.md deste especialista: o que ele faz, como, quando avisar quem. Vale quando ele reiniciar ou renovar o contexto.';
+  box.innerHTML = `<div class="frm"><p class="note" style="margin:0 0 8px">${esc(dica)}<br><code>${esc(a.arquivo)}</code> · conta ${esc(a.conta)}${a.modelo ? ' · ' + esc(a.modelo) : ''}</p>
+    <textarea id="inT" rows="24" placeholder="${a.tipo === 'dev' ? 'ex.: Neste repo use sempre os componentes de src/ui; nunca altere as migrations antigas…' : ''}">${esc(a.instrucoes)}</textarea>
+    <div class="mact" style="margin-top:10px"><button class="sb" data-in="salvar" title="Só grava — vale da próxima vez que ele subir">Só salvar</button><button class="sb pri" data-in="reiniciar">Salvar e aplicar agora</button></div></div>`;
+}
+document.getElementById('scrInstr').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-in]'); if (!b) return;
+  const r = await post('/agente', { agent: viewAgent, action: 'instrucoes', texto: document.getElementById('inT').value }).catch((er) => ({ ok: false, out: er.message }));
+  if (!r.ok) return avisa('Não salvou', r.out || 'falhou');
+  document.getElementById('sendSt').textContent = r.out;
+  if (b.dataset.in === 'reiniciar') await aplicarAprendizado(viewAgent, 'as novas instruções');
+});
+
+// aplicar instruções/skills: avisa, o boneco sai pela porta, o agente reinicia e volta
+async function aplicarAprendizado(id, motivo) {
+  const nm = nmOf(id), vivo = !!S.agents[id];
+  if (!vivo) { document.getElementById('sendSt').textContent = `${nm} está fora do ar — vale quando ele for chamado`; return; }
+  if (S.agents[id].status === 'working' && !(await confirma(`${nm} está trabalhando agora`, 'Aplicar agora interrompe o que ele está fazendo. Continuar?', true, 'Aplicar agora'))) return;
+  await modal({ title: `${nm} vai aprender ${motivo}`, text: `Ele sai da sala por um instante para carregar ${motivo} e já volta para a mesa.${id === 'boss' ? ' (O Boss reinicia no terminal do andar.)' : ''}`, info: true });
+  document.getElementById('screen').style.display = 'none'; clearInterval(screenTimer); viewAgent = null;
+  aprender(id, motivo);
+  const r = await post('/agent', { agent: id, action: 'restart' }).catch((er) => ({ ok: false, out: er.message }));
+  const c = chars.get(id); if (c) { c.saiuDoAr = true; setTimeout(() => { c.podeVoltar = true; }, 6000); }
+  document.getElementById('sendSt').textContent = r.ok ? `${nm} voltou com ${motivo}` : (r.out || 'não reiniciou');
+  if (!r.ok) { if (c) c.podeVoltar = true; avisa('Não deu para aplicar agora', r.out || 'falhou'); }
+}
+
+// ---------------- novo agente ----------------
+document.getElementById('cards').addEventListener('click', async (e) => {
+  if (e.target.id !== 'novoAg') return; e.stopPropagation();
+  let d = { repos: [] }; try { d = await fetch('/agente?' + qs({ p: PROJECT }), { cache: 'no-store' }).then((r) => r.json()); } catch {}
+  const livres = d.repos.filter((r) => !r.temDev);
+  const bg = document.createElement('div'); bg.className = 'mbg';
+  bg.innerHTML = `<div class="mdl wide frm" role="dialog" aria-modal="true"><h4>Novo agente · ${esc(UI.title || PROJECT)}</h4>
+    <label>Tipo</label><select id="naT"><option value="especialista">Especialista — faz um papel (segurança, documentação, banco, performance…) e não altera código</option>${livres.length ? '<option value="dev">Dev residente de um repositório — recebe tarefas do Boss e altera código na mesa dele</option>' : ''}</select>
+    <div id="naEsp"><div class="lin"><div><label>Nome (curto, sem espaço)</label><input id="naN" placeholder="ex.: seguranca"></div><div><label>Título</label><input id="naTi" placeholder="ex.: Segurança"></div><div style="flex:.4"><label>Cor</label><input id="naC" type="color" value="#a78bfa" style="height:34px;padding:2px"></div></div>
+      <label>Descrição curta (aparece no card)</label><input id="naD" placeholder="ex.: revisa vulnerabilidades e dados sensíveis"></div>
+    <div id="naDev" style="display:none"><label>Repositório</label><select id="naR">${livres.map((r) => `<option>${esc(r.nome)}</option>`).join('')}</select></div>
+    <label>O que ele deve fazer, como e quando (as instruções dele)</label>
+    <textarea id="naI" rows="11" placeholder="Ex.: Você é o especialista em segurança. Quando o Boss pedir, revise o diff da tarefa procurando: segredos no código, SQL injection, XSS, dados pessoais em log, permissões faltando. Responda com uma lista por gravidade (alta/média/baixa), arquivo e linha, e a correção sugerida. Nunca rode scanners que façam requisições para fora."></textarea>
+    <div class="lin"><div><label>Conta do Claude</label><select id="naCo"><option value="2">conta 2 (equipe)</option><option value="1">conta 1</option></select></div><div><label>Modelo</label><select id="naM"><option value="sonnet">Sonnet (equilíbrio)</option><option value="haiku">Haiku (mais barato)</option><option value="opus">Opus (mais capaz, mais caro)</option></select></div></div>
+    <div class="ck" id="naQaW"><input type="checkbox" id="naQa"><label for="naQa" style="margin:0">Pode pedir validação ao QA</label></div>
+    <div class="ck"><input type="checkbox" id="naS" checked><label for="naS" style="margin:0">Já chamar para o escritório</label></div>
+    <small>O Boss fica sabendo do novo agente. Depois dá para ajustar as instruções e as skills dele no card (Conversa → Instruções / Skills).</small>
+    <div class="mact"><button class="mc">Cancelar</button><button class="mo">Criar agente</button></div></div>`;
+  const $ = (x) => bg.querySelector(x);
+  const tipo = () => $('#naT').value;
+  $('#naT').onchange = () => { const dev = tipo() === 'dev'; $('#naEsp').style.display = dev ? 'none' : ''; $('#naDev').style.display = dev ? '' : 'none'; $('#naQaW').style.display = dev ? 'none' : ''; $('#naI').placeholder = dev ? 'Ex.: Neste repo siga o padrão de pastas por feature, use os componentes de src/ui e sempre rode npm test antes de passar ao QA.' : $('#naI').placeholder; };
+  $('#naN').oninput = () => { if (!$('#naTi').dataset.mexeu) $('#naTi').value = $('#naN').value.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()); };
+  $('#naTi').oninput = () => { $('#naTi').dataset.mexeu = 1; };
+  const fim = () => { bg.classList.add('out'); setTimeout(() => bg.remove(), 150); };
+  bg.addEventListener('click', async (ev) => {
+    if (ev.target === bg || ev.target.classList.contains('mc')) return fim();
+    if (!ev.target.classList.contains('mo')) return;
+    ev.target.disabled = true; ev.target.textContent = 'criando…';
+    const r = await post('/agente', { action: 'novo', tipo: tipo(), nome: $('#naN').value.trim(), titulo: $('#naTi').value, descricao: $('#naD').value, cor: $('#naC').value, repo: $('#naR')?.value, instrucoes: $('#naI').value, conta: $('#naCo').value, modelo: $('#naM').value, qa: $('#naQa').checked, subir: $('#naS').checked }).catch((er) => ({ ok: false, out: er.message }));
+    ev.target.disabled = false; ev.target.textContent = 'Criar agente';
+    if (!r.ok) return avisa('Não criei o agente', r.out || 'falhou');
+    fim(); await avisa('Agente criado', r.out + '\n\nA sala vai recarregar para ele ganhar uma mesa.'); location.reload();
+  });
+  document.body.appendChild(bg); setTimeout(() => $('#naN').focus(), 30);
+}, true);
+
 // ---------------- configurações das sessões (por projeto) ----------------
 document.getElementById('cfgBtn')?.addEventListener('click', async () => {
   let st = {}; try { st = await fetch('/settings?p=' + encodeURIComponent(PROJECT), { cache: 'no-store' }).then((r) => r.json()); } catch {}
@@ -762,7 +913,7 @@ function renderSide() {
     const nm = id === 'boss' ? 'Boss' : sp ? sp.title : LABEL(repo);
     return `<div class="card off mini" data-id="${esc(id)}"><div class="top"><div class="sw" style="background:${hex(colorFor(id))};opacity:.35"></div>
       <div class="tt"><div class="nm" style="opacity:.6">${esc(nm)}</div></div><span class="pill st-off">fora do ar</span>
-      ${id === 'boss' ? `<button class="ab" data-ag="start" data-agent="boss" title="O Boss roda no seu terminal">como chamar?</button>` : `<button class="ab go" data-ag="start" data-agent="${esc(id)}">chamar</button>`}</div></div>`;
+      ${id === 'boss' ? `<button class="ab" data-cfg="boss" title="Instruções e skills">ajustar</button><button class="ab go" data-ag="start" data-agent="boss" title="Sobe o Boss no terminal do andar (com a equipe e os serviços). No Herdr: ${esc(UI.atalho || PROJECT)}">chamar</button>` : `<button class="ab" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</button><button class="ab go" data-ag="start" data-agent="${esc(id)}">chamar</button>`}</div></div>`;
   };
   const card = (id) => {
     if (!S.agents[id]) return offCard(id);
@@ -776,18 +927,19 @@ function renderSide() {
     return `<div class="card ${a.status} ${selected === id ? 'sel' : ''} ${open ? '' : 'mini'}" data-id="${esc(id)}">
       <div class="top"><div class="sw" style="background:${hex(colorFor(id))}"></div>
         <div class="tt"><div class="nm">${esc(nm)}</div>${open ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
-        <span class="pill st-${a.status}">${STATUS_TXT[a.status] || a.status}</span></div>
+        ${open ? '' : `<button class="ab" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</button>`}<span class="pill st-${a.status}">${STATUS_TXT[a.status] || a.status}</span></div>
       ${open ? `${a.title ? `<div class="task" title="${esc(a.title)}">${esc(clip(a.title, 90))}</div>` : ''}
-      <div class="chips"><span class="chip tela" data-screen="${esc(id)}">conversa</span>${conta ? `<span class="chip" title="${esc(acc?.email || '')}">${esc(conta)}</span>` : ''}${a.model || u.model ? `<span class="chip">${esc(String(a.model || u.model).replace('claude-', ''))}</span>` : ''}${a.ctx != null ? `<span class="chip" title="contexto usado">ctx ${a.ctx}%</span>` : ''}${id !== 'boss' && S.rework[id] ? `<span class="chip">${S.rework[id]} ajuste(s)</span>` : ''}</div>
-      ${id === 'boss' ? '' : `<div class="acts"><button class="ab" data-ag="restart" data-agent="${esc(id)}" title="encerra e sobe de novo com contexto limpo">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="${esc(id)}">dispensar</button></div>`}
+      <div class="chips"><span class="chip tela" data-screen="${esc(id)}">conversa</span><span class="chip tela" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</span>${conta ? `<span class="chip" title="${esc(acc?.email || '')}">${esc(conta)}</span>` : ''}${a.model || u.model ? `<span class="chip">${esc(String(a.model || u.model).replace('claude-', ''))}</span>` : ''}${a.ctx != null ? `<span class="chip" title="contexto usado">ctx ${a.ctx}%</span>` : ''}${id !== 'boss' && S.rework[id] ? `<span class="chip">${S.rework[id]} ajuste(s)</span>` : ''}</div>
+      ${id === 'boss' ? `<div class="acts"><button class="ab" data-ag="restart" data-agent="boss" title="/exit e sobe de novo (contexto conforme ⚙)">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="boss" title="/exit no Boss">dispensar</button></div>` : `<div class="acts"><button class="ab" data-ag="restart" data-agent="${esc(id)}" title="encerra e sobe de novo com contexto limpo">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="${esc(id)}">dispensar</button></div>`}
       ${!u.msgs ? '' : `<div class="stats"><div>Hoje<b>${fmtUsd(u.today?.cost)}</b></div><div>Tokens hoje<b>${fmtTok((u.today?.in || 0) + (u.today?.out || 0))}</b></div><div>Turnos<b>${a.turn}</b></div></div>`}` : ''}
     </div>`;
   };
-  const html = grupos.filter(([, , l]) => l.length).map(([k, t, l]) => {
+  let html = grupos.filter(([, , l]) => l.length).map(([k, t, l]) => {
     const ativos = l.filter((i) => ['working', 'blocked'].includes(S.agents[i]?.status)).length;
     const fora = l.filter((i) => !S.agents[i]).length;
     return groupHead('side-' + k, t, `${l.length}${ativos ? ` · ${ativos} ativo(s)` : ''}${fora ? ` · ${fora} fora do ar` : ''}`) + (isFolded('side-' + k) ? '' : l.map(card).join(''));
   }).join('');
+  html = `<button id="novoAg" title="Criar um agente novo neste andar">＋ Novo agente</button>` + html;
   if (html !== side.dataset.h) { side.dataset.h = html; side.innerHTML = html; }
 }
 
@@ -913,11 +1065,18 @@ function painelUso() {
 }
 function painelAgentes() {
   const U = S.usage || {};
-  const ids = [...new Set([...Object.keys(S.agents || {}), ...Object.keys(U)])].sort(byOrder);
+  const time = new Set([...(S.team || []), ...Object.keys(S.agents || {})]);
+  const ids = [...time].sort(byOrder);
+  const agg = {}; // uso de devs extras (worktrees antigos/temporários) entra na linha do dev do repo
+  for (const [k, u] of Object.entries(U)) {
+    let alvo = k; if (!time.has(k)) { const { repo } = parseId(k); alvo = repo && time.has('dev-' + repo) ? 'dev-' + repo : null; }
+    if (!alvo) continue; const a = (agg[alvo] ||= { today: { in: 0, out: 0, cost: 0 }, conta: u.conta, model: u.model });
+    a.today.in += u.today?.in || 0; a.today.out += u.today?.out || 0; a.today.cost += u.today?.cost || 0; if (k === alvo) { a.conta = u.conta; a.model = u.model; }
+  }
   const hoje = new Date().toDateString();
   const cont = (id, f) => feed.filter((e) => (e.from === id || e.to === id) && f(e)).length;
   const rows = ids.map((id) => {
-    const a = S.agents[id] || {}, u = U[id] || {};
+    const a = S.agents[id] || {}, u = agg[id] || {};
     const tarefas = feed.filter((e) => e.to === id && (e.kind === 'delegate' || e.kind === 'ask')).length;
     const qaRep = feed.filter((e) => e.from === 'qa' && e.kind === 'qafail' && (e.text || '').includes(id.replace(/^dev-/, ''))).length;
     return `<tr><td><span class="dot" style="background:${hex(colorFor(id))}"></span>${esc(nmA(id))}</td>
@@ -1013,8 +1172,245 @@ document.querySelectorAll('.tabs button[data-tab]').forEach((b) => b.addEventLis
   document.querySelectorAll('.tabs button[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
   document.getElementById('office').style.display = tab === 'office' ? 'block' : 'none';
   document.getElementById('panel').style.display = tab === 'panel' ? 'block' : 'none';
-  if (tab === 'office') resize(); else renderPanel();
+  document.getElementById('term').style.display = tab === 'term' ? 'flex' : 'none';
+  document.getElementById('git').style.display = tab === 'git' ? 'flex' : 'none';
+  if (tab === 'git') gitAbrir();
+  if (tab === 'term') termAbrir(); else termFit();
+  if (tab === 'office') resize(); else if (tab === 'panel') renderPanel();
 }));
+
+// ---------------- terminal do andar (xterm.js + WebSocket) ----------------
+let XT = null, term = null, fit = null, tws = null, termQual = null;
+const loadScript = (src) => new Promise((ok, err) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
+async function termLib() {
+  if (XT) return XT;
+  const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/vendor/xterm.css'; document.head.appendChild(l);
+  await loadScript('/vendor/xterm.js'); await loadScript('/vendor/addon-fit.js');
+  return (XT = window.Terminal);
+}
+function termStatus() {
+  const vivo = !!S.agents?.boss;
+  const bt = document.getElementById('termBoss'); if (bt) bt.style.display = vivo ? 'none' : '';
+  document.querySelectorAll('#term [data-tw]').forEach((b) => b.classList.toggle('on', b.dataset.tw === termQual));
+}
+function termFit() { if (term && fit && tab === 'term') { try { fit.fit(); } catch {} if (tws?.readyState === 1) tws.send(JSON.stringify({ t: 'r', c: term.cols, r: term.rows })); } }
+async function termAbrir(qual) {
+  qual = qual || termQual || (S.agents?.boss ? 'boss' : 'andar');
+  const st = document.getElementById('termSt');
+  if (tws && termQual === qual && tws.readyState <= 1) { termStatus(); termFit(); term?.focus(); return; }
+  termQual = qual; termStatus();
+  try { await termLib(); } catch { st.textContent = 'não consegui carregar o terminal'; return; }
+  if (!term) {
+    term = new XT({ fontFamily: 'Menlo, "SF Mono", Monaco, Consolas, monospace', fontSize: 13, cursorBlink: true, scrollback: 5000, allowProposedApi: true,
+      theme: { background: '#0b0908', foreground: '#e9e2da', cursor: '#e8875a', selectionBackground: '#5a3b2a' } });
+    fit = new window.FitAddon.FitAddon(); term.loadAddon(fit); term.open(document.getElementById('termBox'));
+    term.onData((d) => { if (tws?.readyState === 1) tws.send(JSON.stringify({ t: 'i', d })); });
+    new ResizeObserver(() => termFit()).observe(document.getElementById('termBox'));
+  }
+  try { tws?.close(); } catch {}
+  term.reset(); fit.fit();
+  st.textContent = qual === 'boss' ? 'conectando ao Boss…' : 'abrindo o terminal do andar…';
+  const ws = new WebSocket(`ws://${location.host}/term?p=${encodeURIComponent(PROJECT)}&w=${qual}&t=${S.token || ''}&c=${term.cols}&r=${term.rows}`);
+  ws.binaryType = 'arraybuffer'; tws = ws;
+  ws.onopen = () => { st.textContent = qual === 'boss' ? 'Boss — /exit encerra; o terminal continua no Herdr' : 'terminal do andar (na pasta do projeto, dentro do Herdr)'; term.focus(); };
+  ws.onmessage = (m) => term.write(typeof m.data === 'string' ? m.data : new Uint8Array(m.data));
+  ws.onclose = () => { if (tws === ws) { st.textContent = 'desconectado — clique em reconectar'; tws = null; } };
+}
+document.getElementById('term')?.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-tw]'); if (b) { tws?.close(); tws = null; return termAbrir(b.dataset.tw); }
+  if (e.target.id === 'termRe') { tws?.close(); tws = null; return termAbrir(termQual); }
+  if (e.target.id === 'termBoss') {
+    e.target.disabled = true;
+    const r = await fetch('/terminal', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': S.token || '' }, body: JSON.stringify({ project: PROJECT, action: 'iniciar-boss' }) }).then((x) => x.json()).catch((er) => ({ ok: false, out: er.message }));
+    e.target.disabled = false;
+    if (!r.ok) return avisa('Não deu para iniciar o Boss', r.out || 'falhou');
+    tws?.close(); tws = null; termAbrir('andar'); // o Boss sobe dentro do terminal do andar
+  }
+});
+
+// ---------------- Git: adicionar, commitar, enviar e abrir MR/PR (com as regras do sistema) ----------------
+let GIT = { lista: [], sel: null, det: null, arq: null };
+const gfetch = (u) => fetch(u, { cache: 'no-store' }).then((r) => r.json());
+async function gitAbrir() {
+  const box = document.getElementById('gitList'); if (!GIT.lista.length) box.innerHTML = '<div class="note">lendo os repositórios…</div>';
+  try { const d = await gfetch('/git?p=' + encodeURIComponent(PROJECT)); GIT.lista = d.repos; GIT.prot = d.protegidas; } catch (e) { box.innerHTML = 'erro: ' + esc(e.message); return; }
+  const item = (r) => `<div class="gr ${GIT.sel === r.id ? 'on' : ''}" data-gr="${esc(r.id)}"><b>${esc(r.tipo === 'mesa' ? r.nome + ' (mesa)' : r.nome)}</b><div class="sm">${r.erro ? 'erro' : `${esc(r.branch || 'sem branch')}${r.protegida ? ' 🔒' : ''}${r.ahead ? ' · ↑' + r.ahead : ''}${r.behind ? ' · ↓' + r.behind : ''}`}${r.alterados ? ` · <span style="color:#f2c14e">${r.alterados} alterado(s)</span>` : ''}</div></div>`;
+  const repos = GIT.lista.filter((r) => r.tipo === 'repo'), mesas = GIT.lista.filter((r) => r.tipo === 'mesa');
+  box.innerHTML = `<div id="gContas"><h5>Contas</h5><div class="note">verificando…</div></div><h5>Repositórios (pasta original)</h5>${repos.map(item).join('') || '<div class="note">nenhum</div>'}${mesas.length ? `<h5>Mesas dos devs</h5>${mesas.map(item).join('')}` : ''}`;
+  if (!GIT.sel && GIT.lista.length) GIT.sel = (GIT.lista.find((r) => r.alterados) || GIT.lista[0]).id;
+  if (GIT.sel) gitDetalhe();
+  gitContas();
+}
+// ---------- padrões: tipos (Conventional Commits) + gitmoji, nomes de branch ----------
+const TIPOS = [
+  ['feat', '✨', 'funcionalidade nova', 'feature'], ['fix', '🐛', 'correção de bug', 'fix'], ['hotfix', '🚑️', 'correção urgente em produção', 'hotfix'],
+  ['docs', '📝', 'documentação', 'docs'], ['refactor', '♻️', 'refatoração (sem mudar comportamento)', 'refactor'], ['perf', '⚡️', 'desempenho', 'perf'],
+  ['test', '✅', 'testes', 'test'], ['style', '💄', 'visual / estilo / UI', 'style'], ['chore', '🔧', 'configuração, manutenção', 'chore'],
+  ['build', '📦️', 'build e dependências', 'build'], ['ci', '👷', 'pipeline / CI', 'ci'], ['security', '🔒️', 'segurança', 'security'], ['revert', '⏪️', 'reverte algo', 'revert'],
+];
+const EMO = /^(\p{Extended_Pictographic}|:[a-z_]+:)/u, CONV = /^(?:(?:\p{Extended_Pictographic}|:[a-z_]+:)️?\s*)?([a-z]+)(\([^)]+\))?!?:\s/u;
+function estiloDoRepo(d) {
+  const ms = (d.commits || []).map((c) => c.m);
+  const gitmoji = ms.filter((m) => EMO.test(m)).length >= Math.max(1, ms.length / 4);
+  const conv = ms.filter((m) => CONV.test(m)).length >= Math.max(1, ms.length / 4);
+  // prefixo das branches: feature/ ou feat/? (o que o time já usa)
+  const pref = {}; for (const b of d.branchesRemotas || []) { const m = b.match(/^([a-z]+)\//); if (m) pref[m[1]] = (pref[m[1]] || 0) + 1; }
+  const usaFeature = (pref.feature || 0) >= (pref.feat || 0);
+  const ticket = (d.branchesRemotas || []).map((b) => (b.match(/\/([A-Za-z]+-\d+)/) || [])[1]).find(Boolean) || '';
+  return { gitmoji, conv, usaFeature, pref, exemploTicket: ticket };
+}
+const slugBr = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50).replace(/-+$/, '');
+function tipoDaBranch(br) { const p = (br || '').split('/')[0]; return (TIPOS.find((t) => t[0] === p || t[3] === p || (p === 'bugfix' && t[0] === 'fix')) || [])[0] || ''; }
+let gitmojiOn = (() => { try { const v = localStorage.getItem('orq.gitmoji'); return v == null ? null : v === '1'; } catch { return null; } })();
+function commitComposer(d) {
+  const e = estiloDoRepo(d), usaEmoji = gitmojiOn ?? e.gitmoji, tipo = tipoDaBranch(d.branch) || 'feat';
+  return `<div class="lin"><div style="flex:1.2"><label style="margin-top:0">Tipo</label><select id="gTipo">${TIPOS.map((t) => `<option value="${t[0]}" ${t[0] === tipo ? 'selected' : ''}>${t[1]} ${t[0]} — ${t[2]}</option>`).join('')}</select></div>
+      <div style="flex:.8"><label style="margin-top:0">Escopo (opcional)</label><input id="gEsc" placeholder="ex.: auth, checkout"></div>
+      <div style="flex:none;align-self:end"><div class="ck" style="margin:0 0 8px"><input type="checkbox" id="gEmo" ${usaEmoji ? 'checked' : ''}><label for="gEmo" style="margin:0" title="Coloca o emoji do gitmoji.dev no começo">gitmoji</label></div></div></div>
+    <label>Resumo (imperativo, curto)</label><input id="gRes" maxlength="100" placeholder="ex.: corrige logout entre sistemas">
+    <label>Detalhes (opcional)</label><textarea id="gMsg" rows="3" placeholder="Por quê, o que muda, como testar…"></textarea>
+    <div class="note" style="margin:6px 0 0">Vai ficar: <code id="gPrev"></code> ${e.conv || e.gitmoji ? `<span title="detectado pelos últimos commits">· padrão do repo: ${[e.gitmoji ? 'gitmoji' : '', e.conv ? 'conventional commits' : ''].filter(Boolean).join(' + ')}</span>` : ''}</div>`;
+}
+function mensagemCommit() {
+  const t = TIPOS.find((x) => x[0] === document.getElementById('gTipo')?.value) || TIPOS[0];
+  const esc2 = (document.getElementById('gEsc')?.value || '').trim().toLowerCase().replace(/[^a-z0-9._/-]+/g, '-');
+  const res = (document.getElementById('gRes')?.value || '').trim();
+  const head = `${document.getElementById('gEmo')?.checked ? t[1] + ' ' : ''}${t[0]}${esc2 ? `(${esc2})` : ''}: ${res}`;
+  const corpo = (document.getElementById('gMsg')?.value || '').trim();
+  return { head, res, msg: corpo ? head + '\n\n' + corpo : head };
+}
+document.addEventListener('input', (e) => { if (e.target.closest?.('.gcommit')) { const p = document.getElementById('gPrev'); if (p) p.textContent = mensagemCommit().head; } });
+document.addEventListener('change', (e) => { if (e.target.id === 'gEmo') { gitmojiOn = e.target.checked; try { localStorage.setItem('orq.gitmoji', gitmojiOn ? '1' : '0'); } catch {} } if (e.target.closest?.('.gcommit')) { const p = document.getElementById('gPrev'); if (p) p.textContent = mensagemCommit().head; } });
+function nomeBranchForm(d) {
+  const e = estiloDoRepo(d);
+  return `<div class="lin"><div><label style="margin-top:0">Tipo</label><select name="tipo" id="nbT">${TIPOS.map((t) => `<option value="${t[0]}">${t[1]} ${t[0]} — ${t[2]}</option>`).join('')}</select></div>
+      <div style="flex:.6"><label style="margin-top:0">Card / issue (opcional)</label><input name="ticket" id="nbK" placeholder="${esc(e.exemploTicket || 'ex.: TG-512 ou 123')}"></div></div>
+    <label>Do que se trata</label><input name="desc" id="nbD" placeholder="ex.: logout entre sistemas">
+    <div class="ck"><input type="checkbox" id="nbF" ${e.usaFeature ? 'checked' : ''}><label for="nbF" style="margin:0">usar <code>feature/</code> em vez de <code>feat/</code> para funcionalidade</label></div>
+    <label>Nome da branch</label><input name="branch" id="nbN" placeholder="gerado automaticamente — pode editar">
+    <small>Sai de ${esc(d.branch || 'HEAD')}; as alterações não commitadas vão junto. ${Object.keys(e.pref).length ? 'Prefixos já usados no remoto: ' + Object.entries(e.pref).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${esc(k)}/ (${n})`).join(', ') : ''}</small>`;
+}
+function nomeBranchGera(root) {
+  const t = TIPOS.find((x) => x[0] === root.querySelector('#nbT').value) || TIPOS[0];
+  const pre = t[0] === 'feat' ? (root.querySelector('#nbF').checked ? 'feature' : 'feat') : t[3];
+  const k = slugBr(root.querySelector('#nbK').value), d = slugBr(root.querySelector('#nbD').value);
+  return `${pre}/${[k, d].filter(Boolean).join('-')}`.replace(/\/$/, '/');
+}
+
+// contas do GitHub/GitLab: o Orquestra faz o login (gh / glab)
+async function gitContas() {
+  const el = document.getElementById('gContas'); if (!el) return;
+  let c = []; try { c = await gfetch('/git/contas?p=' + encodeURIComponent(PROJECT)); } catch {}
+  GIT.contas = c;
+  el.innerHTML = `<h5>Contas</h5>` + (c.map((x) => `<div class="gr" style="cursor:default"><b>${x.plat === 'github' ? 'GitHub' : 'GitLab'} ${x.logado ? '<span style="color:#4fd18b">✓</span>' : '<span style="color:var(--blocked)">✗</span>'}</b><div class="sm" title="${esc(x.detalhe)}">${esc(x.host)}${x.conta ? ' · ' + esc(x.conta) : ''}</div>
+    <div style="margin-top:6px"><button class="sb ${x.logado ? '' : 'pri'}" data-glogin="${esc(x.host)}">${!x.instalado ? 'instalar ' + x.cli : x.logado ? 'trocar conta' : 'entrar'}</button></div></div>`).join('') || '<div class="note">nenhum remoto do GitHub/GitLab</div>');
+}
+function gitLogin(host) {
+  const x = (GIT.contas || []).find((c) => c.host === host); if (!x) return;
+  const nome = x.plat === 'github' ? 'GitHub' : 'GitLab';
+  const bg = document.createElement('div'); bg.className = 'mbg';
+  const fim = () => { clearInterval(bg._t); bg.classList.add('out'); setTimeout(() => bg.remove(), 150); };
+  const corpo = () => !x.instalado ? `<p>O Orquestra usa o <b>${x.cli}</b> para abrir ${x.plat === 'github' ? 'PRs' : 'MRs'} — ele ainda não está instalado neste computador.</p><div class="mact"><button class="mc">Fechar</button><button class="mo" data-gl="instalar">Instalar o ${x.cli}</button></div>`
+    : `${x.plat === 'github' ? `<p><b>Pelo navegador (mais fácil):</b> o Orquestra mostra um código, você confirma no site do GitHub e pronto.</p><div class="gbar"><button class="sb pri" data-gl="web">Entrar pelo navegador</button></div><div id="glWeb"></div><hr style="border:0;border-top:1px solid var(--line);margin:14px 0">` : ''}
+      <p><b>Com um token${x.plat === 'github' ? ' (alternativa)' : ''}:</b> 1) <a href="${esc(x.token)}" target="_blank">crie um token em ${esc(host)}</a> — a página já abre com as permissões certas (${x.plat === 'github' ? 'repo, workflow' : 'api, write_repository'}); 2) cole aqui:</p>
+      <input id="glTk" type="password" autocomplete="off" placeholder="cole o token" style="width:100%;box-sizing:border-box">
+      <small>O token vai direto para o ${x.cli} (que guarda no ${navigator.platform.includes('Mac') ? 'Keychain do Mac' : 'cofre do sistema'}); o Orquestra não salva nem mostra.</small>
+      <div class="mact"><button class="mc">Fechar</button><button class="mo" data-gl="token">Entrar com o token</button></div>`;
+  bg.innerHTML = `<div class="mdl wide frm" role="dialog" aria-modal="true"><h4>Entrar no ${nome} · ${esc(host)}</h4>${x.logado ? `<p class="note">Já está logado${x.conta ? ' como <b>' + esc(x.conta) + '</b>' : ''}. Entrar de novo troca a conta.</p>` : ''}<div id="glC">${corpo()}</div></div>`;
+  const pronto = (msg) => { fim(); document.getElementById('sendSt').textContent = msg; gitContas(); };
+  bg.addEventListener('click', async (e) => {
+    if (e.target === bg || e.target.classList.contains('mc')) return fim();
+    const a = e.target.closest('[data-gl]')?.dataset.gl; if (!a) return;
+    e.target.disabled = true;
+    if (a === 'instalar') { e.target.textContent = 'instalando… (pode levar 1–2 min)'; const r = await post('/git/instalar', { plat: x.plat, host }).catch((er) => ({ ok: false, out: er.message })); e.target.disabled = false; if (!r.ok) return avisa('Não instalou', r.out); x.instalado = true; bg.querySelector('#glC').innerHTML = corpo(); return; }
+    if (a === 'token') { const tk = bg.querySelector('#glTk').value.trim(); const r = await post('/git/login', { plat: x.plat, host, modo: 'token', token: tk }).catch((er) => ({ ok: false, out: er.message })); e.target.disabled = false; return r.ok ? pronto(r.out) : avisa('Não entrou', r.out); }
+    if (a === 'web') {
+      const r = await post('/git/login', { plat: x.plat, host, modo: 'web' }).catch((er) => ({ ok: false, out: er.message })); if (!r.ok) { e.target.disabled = false; return avisa('Não deu', r.out); }
+      const box = bg.querySelector('#glWeb'); box.innerHTML = '<p class="note">gerando o código…</p>'; let abriu = false;
+      bg._t = setInterval(async () => {
+        const l = await gfetch('/git/login?s=' + r.sessao).catch(() => null); if (!l) return;
+        if (l.codigo) { box.innerHTML = `<p>Seu código: <b style="font-size:22px;letter-spacing:2px;color:var(--accent)">${esc(l.codigo)}</b> <button class="sb" onclick="navigator.clipboard.writeText('${esc(l.codigo)}')">copiar</button></p><p>Confirme em <a href="${esc(l.url)}" target="_blank">${esc(l.url)}</a> (já abrimos a página) e autorize. Esta janela fecha sozinha.</p>`; if (!abriu) { abriu = true; window.open(l.url, '_blank'); } }
+        if (l.fim) { clearInterval(bg._t); if (l.ok) pronto('pronto — logado no GitHub'); else { box.innerHTML = `<p style="color:var(--blocked)">Não completou.</p><pre style="white-space:pre-wrap;font-size:11px">${esc(l.saida)}</pre>`; e.target.disabled = false; } }
+      }, 1200);
+    }
+  });
+  document.body.appendChild(bg);
+}
+async function gitDetalhe() {
+  const el = document.getElementById('gitDet'); let d;
+  try { d = await gfetch(`/git/repo?p=${encodeURIComponent(PROJECT)}&r=${encodeURIComponent(GIT.sel)}`); } catch (e) { el.innerHTML = 'erro: ' + esc(e.message); return; }
+  GIT.det = d; document.querySelectorAll('#gitList .gr').forEach((x) => x.classList.toggle('on', x.dataset.gr === GIT.sel));
+  if (d.erro) { el.innerHTML = '<div class="note">' + esc(d.erro) + '</div>'; return; }
+  const st = d.arquivos.filter((a) => a.staged), nao = d.arquivos.filter((a) => !a.staged || a.mudado);
+  const letra = (a, staged) => { const c = staged ? a.x : a.novo ? 'U' : a.y; return `<span class="x ${c === '?' ? 'U' : c}">${c === '?' ? 'U' : c}</span>`; };
+  const linha = (a, staged) => `<div class="gf ${GIT.arq?.f === a.f && GIT.arq?.staged === staged ? 'sel' : ''}" data-gf="${esc(a.f)}" data-st="${staged ? 1 : 0}" data-novo="${a.novo ? 1 : 0}">${letra(a, staged)}<span class="nm" title="${esc(a.f)}">${esc(a.de ? a.de + ' → ' + a.f : a.f)}</span>${a.bloqueio ? `<span class="bl" title="${esc(a.bloqueio)}">🔒 ${esc(a.bloqueio.split(' ')[0])}</span>` : `<button class="sb" data-ga="${staged ? 'unstage' : 'stage'}" data-f="${esc(a.f)}">${staged ? '−' : '+'}</button>`}</div>`;
+  const prot = d.protegida, plat = d.plataforma === 'github' ? 'PR' : 'MR';
+  el.innerHTML = `<div class="gbar"><span class="br">⎇ ${esc(d.branch || '(sem branch)')}</span>${prot ? '<span class="bdg bad">protegida</span>' : ''}<span class="sm">${d.upstream ? '↔ ' + esc(d.upstream) : 'sem branch remota'}${d.ahead ? ' · ↑' + d.ahead + ' para enviar' : ''}${d.behind ? ' · ↓' + d.behind + ' para puxar' : ''}</span>
+      <span style="margin-left:auto"></span><button class="sb" data-ga="fetch">atualizar</button>${d.behind ? '<button class="sb" data-ga="pull">puxar (sem merge)</button>' : ''}<button class="sb" data-ga="branch">nova branch</button></div>
+    ${prot ? `<div class="gregras" style="border-color:var(--blocked)">Você está em <b>${esc(d.branch)}</b>, que é protegida: aqui não se commita nem se envia. Crie uma branch (<b>nova branch</b>) — suas alterações vão junto.</div>` : ''}
+    <div class="gfiles"><h6>Alterações (${nao.length})${nao.some((a) => !a.bloqueio) ? '<button class="sb" data-ga="stage-todos">+ adicionar todas</button>' : ''}</h6>${nao.map((a) => linha(a, false)).join('') || '<div class="gf" style="cursor:default;color:var(--muted)">nada alterado</div>'}</div>
+    <div class="gfiles"><h6>No próximo commit (${st.length})${st.length ? '<button class="sb" data-ga="unstage-todos">− tirar todas</button>' : ''}</h6>${st.map((a) => linha(a, true)).join('') || '<div class="gf" style="cursor:default;color:var(--muted)">adicione arquivos com +</div>'}</div>
+    <div id="gDiff"></div>
+    <div class="gcommit frm">${commitComposer(d)}
+      <div class="gbar"><button class="sb pri" data-ga="commit" ${!st.length || prot ? 'disabled' : ''}>Commitar ${st.length} arquivo(s)</button><button class="sb" data-ga="push" ${prot || !d.branch || (!d.ahead && d.upstream) ? 'disabled' : ''}>Enviar (push)${d.ahead ? ' ↑' + d.ahead : ''}</button><button class="sb" data-ga="mr" ${prot || !d.branch ? 'disabled' : ''}>Abrir ${plat}${d.plataforma ? '' : ' (?)'}</button><button class="sb" data-ga="merge" ${prot || !d.branch || !d.upstream ? 'disabled' : ''} title="Merge (squash) do ${plat} desta branch — decisão sua">Merge do ${plat}…</button></div></div>
+    <div class="gregras">Regras: nada de commit/push em ${esc((GIT.prot || []).join(', '))}; sem force push; submódulos e arquivos sensíveis (.env, chaves) nunca entram; merge só pelo ${plat} — quem aprova é você.</div>
+    <div class="glog"><b style="font-size:12px">Últimos commits</b>${d.commits.slice(0, 8).map((c) => `<div><code>${esc(c.h)}</code> ${esc(c.m)} <span class="note" style="margin:0">— ${esc(c.a)}, ${esc(c.q)}</span></div>`).join('')}</div>`;
+  if (GIT.arq) gitDiff();
+}
+async function gitDiff() {
+  const a = GIT.arq, box = document.getElementById('gDiff'); if (!a || !box) return;
+  const t = await fetch(`/git/diff?p=${encodeURIComponent(PROJECT)}&r=${encodeURIComponent(GIT.sel)}&f=${encodeURIComponent(a.f)}&staged=${a.staged ? 1 : 0}&novo=${a.novo ? 1 : 0}`, { cache: 'no-store' }).then((r) => r.text()).catch((e) => 'erro: ' + e.message);
+  box.innerHTML = `<div class="gdiff">${esc(t).split('\n').map((l) => /^(\+\+\+|---)/.test(l) ? `<span class="h">${l}</span>` : l.startsWith('+') ? `<span class="a">${l}</span>` : l.startsWith('-') ? `<span class="r">${l}</span>` : l.startsWith('@@') ? `<span class="h">${l}</span>` : l).join('\n')}</div>`;
+}
+const gpost = (body) => post('/git', { repo: GIT.sel, ...body }).catch((e) => ({ ok: false, out: e.message }));
+function gitForm(titulo, campos, ok, prep) {
+  return new Promise((resolve) => {
+    const bg = document.createElement('div'); bg.className = 'mbg';
+    bg.innerHTML = `<div class="mdl wide frm" role="dialog" aria-modal="true"><h4>${esc(titulo)}</h4>${campos}<div class="mact"><button class="mc">Cancelar</button><button class="mo">${esc(ok)}</button></div></div>`;
+    const fim = (v) => { bg.classList.add('out'); setTimeout(() => bg.remove(), 150); resolve(v); };
+    bg.addEventListener('click', (e) => { if (e.target === bg || e.target.classList.contains('mc')) fim(null); if (e.target.classList.contains('mo')) fim(Object.fromEntries([...bg.querySelectorAll('[name]')].map((x) => [x.name, x.value]))); });
+    document.body.appendChild(bg); if (prep) prep(bg); else setTimeout(() => bg.querySelector('[name]')?.focus(), 30);
+  });
+}
+document.getElementById('git').addEventListener('click', async (e) => {
+  const gl = e.target.closest('[data-glogin]'); if (gl) { e.stopPropagation(); return gitLogin(gl.dataset.glogin); }
+  const gr = e.target.closest('[data-gr]'); if (gr) { GIT.sel = gr.dataset.gr; GIT.arq = null; return gitDetalhe(); }
+  const b = e.target.closest('[data-ga]');
+  if (!b) { const f = e.target.closest('[data-gf]'); if (f) { GIT.arq = { f: f.dataset.gf, staged: f.dataset.st === '1', novo: f.dataset.novo === '1' }; document.querySelectorAll('#gitDet .gf').forEach((x) => x.classList.toggle('sel', x === f)); gitDiff(); } return; }
+  e.stopPropagation();
+  const d = GIT.det, act = b.dataset.ga, plat = d?.plataforma === 'github' ? 'PR' : 'MR', stt = document.getElementById('sendSt');
+  let r;
+  if (act === 'stage' || act === 'unstage') r = await gpost({ action: act, files: [b.dataset.f] });
+  else if (act === 'stage-todos') r = await gpost({ action: 'stage', files: d.arquivos.filter((a) => (!a.staged || a.mudado) && !a.bloqueio).map((a) => a.f) });
+  else if (act === 'unstage-todos') r = await gpost({ action: 'unstage', files: d.arquivos.filter((a) => a.staged).map((a) => a.f) });
+  else if (act === 'fetch' || act === 'pull') { b.disabled = true; b.textContent = '…'; r = await gpost({ action: act }); }
+  else if (act === 'branch') {
+    const v = await gitForm('Nova branch', nomeBranchForm(d), 'Criar branch', (root) => { const n = root.querySelector('#nbN'); const auto = () => { if (!n.dataset.mexeu) n.value = nomeBranchGera(root); }; root.querySelectorAll('#nbT,#nbK,#nbD,#nbF').forEach((x) => x.addEventListener('input', auto)); root.querySelectorAll('#nbT,#nbF').forEach((x) => x.addEventListener('change', auto)); n.addEventListener('input', () => (n.dataset.mexeu = 1)); auto(); setTimeout(() => root.querySelector('#nbD').focus(), 40); }); if (!v) return;
+    if (!/\/[a-z0-9]/.test(v.branch || '')) return avisa('Falta o nome', 'Diga do que se trata (ou o número do card) para gerar o nome da branch.');
+    r = await gpost({ action: 'branch', branch: v.branch });
+  } else if (act === 'commit') {
+    const mc = mensagemCommit(), msg = mc.msg; if (mc.res.length < 3) return avisa('Falta o resumo', 'Escreva o resumo do commit (ex.: corrige logout entre sistemas).');
+    const st = d.arquivos.filter((a) => a.staged).map((a) => a.f);
+    if (!(await confirma(`Commitar em ${d.branch}?`, `${msg}\n\n${st.length} arquivo(s):\n${st.slice(0, 12).join('\n')}${st.length > 12 ? '\n…' : ''}`, false, 'Commitar'))) return;
+    r = await gpost({ action: 'commit', mensagem: msg });
+  } else if (act === 'push') {
+    if (!(await confirma(`Enviar ${d.branch} para o remoto?`, `git push -u origin ${d.branch}${d.ahead ? ` (${d.ahead} commit(s))` : ''}. Sem force push.`, false, 'Enviar'))) return;
+    b.disabled = true; b.textContent = 'enviando…'; r = await gpost({ action: 'push' });
+  } else if (act === 'mr') {
+    const ult = d.commits[0]?.m || '';
+    const v = await gitForm(`Abrir ${plat} de ${d.branch}`, `<label>Destino</label><input name="alvo" value="${esc(d.alvo)}"><small>Pela regra do projeto: develop (ou main quando o repo não tem develop).</small>
+      <label>Título</label><input name="titulo" value="${esc(ult)}"><label>Descrição</label><textarea name="descricao" rows="8" placeholder="O que mudou, por quê, como testar…"></textarea>
+      <small>Se a branch ainda não foi enviada, ela é enviada antes. O ${plat} só abre — o merge continua sendo decisão sua, lá no ${d.plataforma === 'github' ? 'GitHub' : 'GitLab'}.</small>`, `Abrir ${plat}`); if (!v) return;
+    b.disabled = true; b.textContent = 'abrindo…'; r = await gpost({ action: 'mr', ...v });
+  } else if (act === 'merge') {
+    if (!(await confirma(`Fazer o merge do ${plat} de ${d.branch}?`, `Junta ${d.branch} em ${d.alvo} no ${d.plataforma === 'github' ? 'GitHub' : 'GitLab'} (squash: vira 1 commit) e apaga a branch remota. Depois você volta para ${d.alvo} já atualizado.\n\nÉ a decisão final — os agentes nunca fazem isso sozinhos.`, true, 'Fazer o merge'))) return;
+    b.disabled = true; b.textContent = 'fazendo o merge…'; r = await gpost({ action: 'merge' });
+  }
+  if (!r) return;
+  if (!r.ok) { if (r.login) { await avisa('Precisa entrar na conta', r.out + '\n\nVou abrir o login.'); if (!GIT.contas) await gitContas(); gitLogin(r.login); } else avisa('Não deu certo', r.out || 'falhou'); }
+  else { stt.textContent = r.out; if (r.link) { const ok = await modal({ title: r.out, text: r.link, ok: 'Abrir no navegador', cancel: 'Fechar' }); if (ok) window.open(r.link, '_blank'); } if (act === 'commit') { ['gMsg', 'gRes', 'gEsc'].forEach((x) => { const m = document.getElementById(x); if (m) m.value = ''; }); } }
+  if (act === 'stage' || act === 'unstage' || act === 'stage-todos' || act === 'unstage-todos') gitDetalhe(); else gitAbrir();
+});
 
 // ---------------- stream ----------------
 function connect() {
@@ -1022,7 +1418,7 @@ function connect() {
   window.bootStep?.('conectando ao servidor…');
   es.addEventListener('init', (m) => { window.bootStep?.('recebendo a equipe…'); const d = JSON.parse(m.data); feed = d.interactions || []; S = d; ROOMS = d.rooms || []; ACCTS = d.accounts || []; renderAll(); renderRooms(); booted = true; window.bootDone?.().then?.(() => { if (window.__lento) toast({ kind: 'servico', from: 'voce', text: window.__lento }); }); });
   es.addEventListener('rooms', (m) => { ROOMS = JSON.parse(m.data); renderRooms(); });
-  es.addEventListener('state', (m) => { S = { ...S, ...JSON.parse(m.data) }; renderAll(); });
+  es.addEventListener('state', (m) => { S = { ...S, ...JSON.parse(m.data) }; renderAll(); if (tab === 'term') termStatus(); });
   es.addEventListener('activity', (m) => onActivity(JSON.parse(m.data)));
   es.addEventListener('accounts', (m) => { ACCTS = JSON.parse(m.data); renderAccounts(); renderSide(); if (tab === 'panel') renderPanel(); });
   es.addEventListener('interaction', (m) => { const e = JSON.parse(m.data); feed.push(e); if (feed.length > 300) feed.shift(); renderFeed(); renderFlow(); if (tab === 'panel') renderPanel(); playInteraction(e); });

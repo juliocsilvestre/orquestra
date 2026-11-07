@@ -1,6 +1,6 @@
 // Orquestra — app de desktop do Orquestra (escritório 3D dos agentes do Herdr/Claude Code).
 // Abre o servidor do Orquestra (se ainda não estiver no ar) e mostra a interface numa janela própria.
-const { app, BrowserWindow, Menu, shell, dialog, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, nativeTheme, ipcMain } = require('electron');
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -34,8 +34,12 @@ function serverDir() {
   const cands = [prefs.serverDir, path.join(HOME, 'Desktop/Developer/.estudio')].filter(Boolean).map((d) => ({ dir: d, config: path.join(d, 'config.json') }));
   cands.push({ dir: path.join(OH, 'server'), config: path.join(OH, 'config.json') }); // instalação padrão (novo-andar.sh)
   for (const c of cands) if (fs.existsSync(path.join(c.dir, 'server.mjs')) && fs.existsSync(c.config)) return c;
-  const cfg = [path.join(OH, 'config.json')].find((f) => fs.existsSync(f));
-  return cfg ? { dir: BUNDLED, config: cfg } : null;
+  // 1ª vez: cria a configuração em ~/.orquestra e usa o servidor que vem no app — os andares são adicionados pela interface
+  const cfg = path.join(OH, 'config.json');
+  if (!fs.existsSync(cfg)) {
+    try { fs.mkdirSync(path.join(OH, 'data'), { recursive: true }); fs.writeFileSync(cfg, JSON.stringify({ port: 4777, projects: [], accounts: [{ id: 'conta1', dir: '~/.claude' }, ...(fs.existsSync(path.join(HOME, '.claude-conta2')) ? [{ id: 'conta2', dir: '~/.claude-conta2' }] : [])], prices: { opus: { input: 5, output: 25 }, sonnet: { input: 3, output: 15 }, haiku: { input: 1, output: 5 }, default: { input: 3, output: 15 } }, cacheWriteMult: 1.25, cacheReadMult: 0.1 }, null, 2)); } catch { return null; }
+  }
+  return { dir: BUNDLED, config: cfg };
 }
 const portOf = (cfgFile) => { try { return Number(JSON.parse(fs.readFileSync(cfgFile, 'utf8')).port) || 4777; } catch { return 4777; } };
 
@@ -144,6 +148,7 @@ function buildMenu() {
 }
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+ipcMain.handle('orq:pasta', async () => { const r = await dialog.showOpenDialog(win, { title: 'Pasta do projeto (a que contém os repositórios)', properties: ['openDirectory', 'createDirectory'], defaultPath: HOME }); return r.canceled ? null : r.filePaths[0]; });
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark';
   loadShellPath(); buildMenu(); createWindow();

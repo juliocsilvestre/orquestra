@@ -291,10 +291,11 @@ function receptionistTip(now) {
 
 // ---------- lista lateral (diretório) ----------
 const side = document.getElementById('cards');
+side.addEventListener('click', (e) => { if (e.target.id === 'novoAndar') { e.stopPropagation(); import('./andar.js').then((m) => m.abrirNovoAndar()); } }, true);
 side.addEventListener('click', (e) => { if (e.target.closest('[data-recep]')) return openRecep(); const c = e.target.closest('[data-room]'); if (c) enter(c.dataset.room); });
 side.addEventListener('mouseover', (e) => { const c = e.target.closest('[data-room]'); hover = c ? floors.find((f) => f.room.id === c.dataset.room) : null; });
 function renderSide() {
-  const html = `<div class="card" data-recep="1" style="border-color:#2ec4b6"><div class="top"><div class="sw" style="background:#2ec4b6"></div><div><div class="nm">Recepção</div><div class="sub">térreo · informações de cada projeto</div></div></div></div>` +
+  let html = `<div class="card" data-recep="1" style="border-color:#2ec4b6"><div class="top"><div class="sw" style="background:#2ec4b6"></div><div><div class="nm">Recepção</div><div class="sub">térreo · informações de cada projeto</div></div></div></div>` +
     [...ROOMS].map((r, i) => ({ r, i })).reverse().map(({ r, i }) => `
     <div class="card ${r.blocked ? 'blocked' : ''}" data-room="${esc(r.id)}">
       <div class="top"><div class="sw" style="background:${hexs(roomColor(r))}"></div>
@@ -302,6 +303,7 @@ function renderSide() {
         <span class="pill ${r.blocked ? 'st-blocked' : r.working ? 'st-working' : r.live ? 'st-done' : 'st-idle'}">${r.blocked ? r.blocked + ' precisa de você' : r.working ? r.working + ' trabalhando' : r.live ? 'no ar' : 'vazia'}</span></div>
       <div class="stats" style="margin-top:8px"><div>Agentes<b>${r.agents}/${r.expected || r.agents}</b></div><div>Hoje<b>${fmtUsd(r.today)}</b></div><div>Servidores<b>${(r.servicesConf || []).length ? (r.services || []).filter(Boolean).length + '/' + r.servicesConf.length : '—'}</b></div></div>
     </div>`).join('');
+  html = `<button id="novoAndar" style="width:100%;margin:0 0 10px;background:transparent;color:var(--accent);border:1px dashed var(--accent);border-radius:10px;padding:9px;cursor:pointer;font:inherit;font-weight:600">＋ Adicionar andar (projeto)</button>` + html;
   if (html !== side.dataset.h) { side.dataset.h = html; side.innerHTML = html; }
 }
 function renderHeader() {
