@@ -1,0 +1,62 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(*ok.sh*)",
+      "Bash(cat .env.local:*)",
+      "Bash(cat .env:*)",
+      "Bash(docker compose up:*)",
+      "Bash(env)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git submodule:*)",
+      "Bash(glab:*)",
+      "Bash(make up:*)",
+      "Bash(npm run dev:*)",
+      "Bash(printenv:*)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pem)",
+      "Read(**/*.pfx)",
+      "Read(**/*state*.json)",
+      "Read(**/.env)",
+      "Read(**/.env.*.local)",
+      "Read(**/.env.dev)",
+      "Read(**/.env.development)",
+      "Read(**/.env.hml)",
+      "Read(**/.env.homolog)",
+      "Read(**/.env.local)",
+      "Read(**/.env.prod)",
+      "Read(**/.env.production)",
+      "Read(**/.env.test)",
+      "Read(**/.secrets/**)",
+      "Bash(hc send:*)",
+      "Bash(hc kill:*)",
+      "Bash(hc run:*)",
+      "Bash(hc keys:*)",
+      "Bash(hc interrupt:*)",
+      "Bash(git push*main*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr review*)",
+      "Bash(gh api*)",
+      "Bash(gh secret*)",
+      "Bash(gh repo delete*)",
+      "Edit(**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__ORQ__/estudio/hook.mjs\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "orquestra",
+  "productName": "Orquestra",
+  "version": "0.1.0",
+  "description": "Escritório 3D para orquestrar agentes de IA (Claude Code no Herdr): um Boss por projeto, devs, QA e especialistas — com fluxo, custos, sessões e serviços.",
+  "main": "main.cjs",
+  "author": "Orquestra contributors",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac dmg zip",
+    "dist:linux": "electron-builder --linux AppImage deb",
+    "dist:dir": "electron-builder --dir",
+    "demo": "node demo/demo.mjs"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "dev.orquestra.app",
+    "productName": "Orquestra",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "server/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "server/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "Orquestra"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "maintainer": "Orquestra contributors <orquestra@users.noreply.github.com>"
+    }
+  },
+  "homepage": "https://github.com/juliocsilvestre/orquestra",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/juliocsilvestre/orquestra.git"
+  }
+}

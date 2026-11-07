@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(hc wait:*)",
+      "Bash(../bin/dev.sh:*)",
+      "Read(../**)",
+      "Bash(../bin/tarefa.sh:*)",
+      "Bash(../bin/equipe.sh:*)",
+      "Bash(../bin/ok.sh:*)",
+      "Bash(../bin/time.sh:*)",
+      "Bash(../bin/hcp.sh:*)"
+    ],
+    "deny": [
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(hc attach:*)",
+      "Bash(hc interrupt:*)",
+      "Bash(hc keys:*)",
+      "Bash(hc kill:*)",
+      "Bash(hc ls:*)",
+      "Bash(hc read:*)",
+      "Bash(hc rm:*)",
+      "Bash(hc run:*)",
+      "Bash(hc send:*)",
+      "Read(**/*.p12)",
+      "Read(**/.env*)",
+      "Read(**/.secrets/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__ORQ__/estudio/hook.mjs\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

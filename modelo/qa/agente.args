@@ -1,0 +1,4 @@
+--add-dir
+{PROJ}
+--mcp-config
+{ORQ}/qa/mcp.json

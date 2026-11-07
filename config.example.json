@@ -1,0 +1,17 @@
+{
+  "port": 4777,
+  "projects": [
+    { "id": "meuprojeto", "orq": "~/Developer/MeuProjeto/.orquestra" }
+  ],
+  "accounts": [
+    { "id": "conta1", "dir": "~/.claude" }
+  ],
+  "prices": {
+    "opus": { "input": 5, "output": 25 },
+    "sonnet": { "input": 3, "output": 15 },
+    "haiku": { "input": 1, "output": 5 },
+    "default": { "input": 3, "output": 15 }
+  },
+  "cacheWriteMult": 1.25,
+  "cacheReadMult": 0.1
+}
