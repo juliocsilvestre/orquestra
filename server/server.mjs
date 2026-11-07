@@ -768,6 +768,7 @@ const lerJson = (f, d = {}) => { try { return JSON.parse(fs.readFileSync(f, 'utf
 function atalhosUsados() { let t = ''; try { t = fs.readFileSync(ATALHOS, 'utf8'); } catch {} return new Set([...t.matchAll(/^([a-zA-Z][\w-]*)\s*\(\)\s*\{/gm)].map((m) => m[1]).filter((n) => n !== '_orq')); }
 async function inspecionaPasta(dir) {
   const r = { caminho: dir, existe: fs.existsSync(dir), repos: [], jaTemAndar: fs.existsSync(path.join(dir, '.orquestra')) };
+  if (r.jaTemAndar) { const pc = lerJson(path.join(dir, '.orquestra', 'estudio', 'config.json'), {}); r.andar = { id: pc.project_id || null, titulo: pc.ui?.title || null, noPredio: !!byId[pc.project_id] }; }
   if (!r.existe) return r;
   let ds = []; try { ds = fs.readdirSync(dir).sort(); } catch {}
   if (fs.existsSync(path.join(dir, '.git'))) r.ehRepo = true; // a própria pasta é um repo: precisa de uma pasta acima
@@ -908,6 +909,67 @@ async function criarAndar(j, progresso) {
   for (const e of (j.especialistas || []).slice(0, 12)) { progresso('criando ' + (e.nome || 'especialista') + '…'); novoAgente(p, { ...e, tipo: 'especialista', conta: contaEq, modelo: e.modelo || mEsp, subir: false }); }
   reloadTeam(p); emit(p);
   return p;
+}
+
+// ---------- gerenciar o prédio: ordem dos andares, nome/atalho, tirar e trazer de volta ----------
+function salvaOrdem() { const c = lerJson(CFG_FILE, { projects: [] }); const porId = Object.fromEntries((c.projects || []).map((x) => [x.id, x])); c.projects = projects.map((q) => porId[q.id] || { id: q.id, orq: q.orq }); fs.writeFileSync(CFG_FILE, JSON.stringify(c, null, 2) + '\n'); broadcastAll('rooms', rooms()); }
+function atalhoTroca(antigo, novo, raiz) {
+  let t = ''; try { t = fs.readFileSync(ATALHOS, 'utf8'); } catch { return; }
+  const re = new RegExp('^' + antigo.replace(/[-]/g, '\\-') + '\\s*\\(\\)\\s*\\{[^\\n]*\\n?', 'm');
+  t = t.replace(re, '');
+  if (novo) { const r = raiz.startsWith(HOME + path.sep) ? '$HOME' + raiz.slice(HOME.length) : raiz; t = t.replace(/\s*$/, '\n') + `${novo}() { _orq "${r}" "$@"; }\n`; }
+  fs.writeFileSync(ATALHOS, t);
+}
+async function pararAndar(p) {
+  for (const [id, a] of Object.entries(p.agents)) { if (id === 'boss') { await hcRun(['send', a.address, '/exit']); continue; } await hcRun(['kill', a.address]); }
+  for (const sv of Object.values(p.services)) if (sv.live) { await hcRun(['interrupt', sv.address]); await sleep(500); await hcRun(['kill', sv.address]); }
+  if (p.floorTerm) await hcRun(['kill', p.floorTerm]);
+}
+async function gerenciaPredio(j) {
+  if (j.action === 'atalhos-rc') {
+    const linha = `\n# Orquestra (atalhos dos andares)\n[ -f "${ATALHOS}" ] && source "${ATALHOS}"\n`; let n = 0;
+    for (const rc of ['.zshrc', '.bashrc'].map((x) => path.join(HOME, x))) { const t = fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : null; if (t === null && !rc.endsWith('.zshrc')) continue; if (t && t.includes(ATALHOS)) continue; fs.appendFileSync(rc, linha); n++; }
+    return n ? 'pronto — os terminais novos já carregam os atalhos' : 'seu shell já carrega os atalhos';
+  }
+  if (j.action === 'atalhos-recarregar') {
+    let n = 0; for (const q of projects) { if (!q.floorTerm || q.agents.boss?.address === q.floorTerm) continue; await hcRun(['send', q.floorTerm, `source ${shq(ATALHOS)}`]); n++; }
+    return n ? `atalhos recarregados em ${n} terminal(is) de andar` : 'nenhum terminal de andar livre agora (os que estão com o Boss rodando recarregam quando você der /exit e abrir de novo)';
+  }
+  if (j.action === 'ordem') {
+    const ids = (j.ids || []).map(String); if (ids.length !== projects.length || ids.some((i) => !byId[i])) throw new Error('lista de andares inválida');
+    projects.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); salvaOrdem(); return 'ordem dos andares salva';
+  }
+  if (j.action === 'editar') {
+    const p = byId[j.id]; if (!p) throw new Error('andar não encontrado');
+    const titulo = String(j.titulo || '').trim().slice(0, 40), atalho = String(j.atalho || '').trim().toLowerCase();
+    if (!titulo) throw new Error('dê um nome ao andar');
+    if (!/^[a-z][a-z0-9_-]{1,19}$/.test(atalho)) throw new Error('atalho inválido');
+    if (atalho !== p.atalho) { if (atalhosUsados().has(atalho) || projects.some((q) => q !== p && q.atalho === atalho)) throw new Error(`o atalho "${atalho}" já é de outro andar`); if (await temCli(atalho)) throw new Error(`"${atalho}" já é um comando do sistema`); }
+    const f = path.join(p.orq, 'estudio', 'config.json'), c = lerJson(f, {}); c.ui ||= {};
+    c.ui.title = titulo; c.ui.brand = String(j.marca || '').trim().slice(0, 16) || (titulo.length <= 14 ? titulo : titulo.split(' ')[0]); c.atalho = atalho;
+    fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
+    const antigo = p.atalho; if (atalho !== antigo) atalhoTroca(antigo, atalho, p.root);
+    reloadTeam(p); emit(p); broadcastAll('rooms', rooms()); return `andar atualizado${atalho !== antigo ? ` — novo atalho: ${atalho} (abra um terminal novo do Herdr para usar)` : ''}`;
+  }
+  if (j.action === 'remover') {
+    const p = byId[j.id]; if (!p) throw new Error('andar não encontrado');
+    if (Object.keys(p.agents).length || Object.values(p.services).some((x) => x.live)) { if (!j.parar) throw new Error('a equipe deste andar ainda está no ar'); await pararAndar(p); }
+    projects.splice(projects.indexOf(p), 1); delete byId[p.id]; for (const r of p.clients) { try { r.end(); } catch {} }
+    atalhoTroca(p.atalho, null); salvaOrdem();
+    return `andar "${p.ui.title || p.id}" saiu do prédio. Nada foi apagado: a pasta ${p.root.replace(HOME, '~')} continua com a equipe e o histórico (.orquestra) — dá para trazer de volta em "Adicionar andar".`;
+  }
+  if (j.action === 'religar') {
+    const root = path.resolve(exp(String(j.pasta || ''))), orq = path.join(root, '.orquestra'), pc = lerJson(path.join(orq, 'estudio', 'config.json'), null);
+    if (!pc?.project_id) throw new Error('essa pasta não tem um andar do Orquestra');
+    if (byId[pc.project_id]) throw new Error('esse andar já está no prédio');
+    const atalho = pc.atalho || pc.project_id;
+    const c = lerJson(CFG_FILE, { projects: [] }); const rel = root.startsWith(HOME + path.sep) ? '~' + root.slice(HOME.length) : root;
+    c.projects = [...(c.projects || []).filter((x) => x.id !== pc.project_id), { id: pc.project_id, orq: path.join(rel, '.orquestra') }]; fs.writeFileSync(CFG_FILE, JSON.stringify(c, null, 2) + '\n');
+    const p = addProjeto({ id: pc.project_id, orq });
+    if (!atalhosUsados().has(atalho)) atalhoTroca(atalho, atalho, root);
+    broadcastAll('rooms', rooms()); return `andar "${p.ui.title || p.id}" voltou ao prédio (atalho: ${p.atalho})`;
+  }
+  throw new Error('ação inválida');
 }
 
 // ---------- HTTP ----------
@@ -1251,6 +1313,19 @@ const server = http.createServer((req, res) => {
         }
       } catch (e) { out(500, e.message); }
     });
+    return;
+  }
+  if (url.pathname === '/predio' && req.method === 'GET') {
+    if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    const rc = ['.zshrc', '.bashrc'].map((x) => path.join(HOME, x)).filter((f) => fs.existsSync(f)).some((f) => fs.readFileSync(f, 'utf8').includes(ATALHOS));
+    let conteudo = ''; try { conteudo = fs.readFileSync(ATALHOS, 'utf8'); } catch {}
+    return res.end(JSON.stringify({ arquivo: ATALHOS.replace(HOME, '~'), carregado: rc, conteudo, andares: projects.map((q, i) => ({ id: q.id, andar: i + 1, titulo: q.ui.title || q.id, marca: q.ui.brand || '', atalho: q.atalho, pasta: q.root.replace(HOME, '~'), noAr: Object.keys(q.agents).length, servicos: Object.values(q.services).filter((x) => x.live).length, terminal: !!q.floorTerm })) }));
+  }
+  if (url.pathname === '/predio' && req.method === 'POST') {
+    if (req.headers['x-token'] !== TOKEN) { res.writeHead(403); return res.end('token'); }
+    let body = ''; req.on('data', (d) => { body += d; if (body.length > 20000) req.destroy(); });
+    req.on('end', async () => { const out = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: code === 200, out: msg })); }; let j; try { j = JSON.parse(body); } catch { return out(400, 'json'); } try { out(200, await gerenciaPredio(j)); } catch (e) { out(400, e.message); } });
     return;
   }
   if (url.pathname === '/token' && req.method === 'GET') {
