@@ -280,6 +280,8 @@ function renderRecep() {
 }
 let tipIdx = 0, tipUntil = 0;
 function receptionistTip(now) {
+  // o balão da recepcionista ficava rodando por cima do prédio; as etiquetas de cada andar já mostram tudo
+  recepBubble.style.display = 'none'; return;
   if (now < tipUntil || !ROOMS.length) return;
   const bl = ROOMS.filter((r) => r.blocked);
   let msg;
