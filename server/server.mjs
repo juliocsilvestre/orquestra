@@ -1853,6 +1853,20 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === '/pendencias' && req.method === 'GET') {
+    // sino de notificações: o que cada agente de cada andar espera de você (aprovação/pergunta) e o que terminou
+    const itens = [];
+    projects.forEach((p, i) => {
+      for (const [id, a] of Object.entries(p.agents || {})) {
+        const base = { projeto: p.id, andar: i + 1, andarNome: p.ui.title || p.id, cor: p.ui.colors?.[id] || '', agente: id, nome: id === 'boss' ? 'Boss' : p.ui.special?.[id]?.title || id };
+        if (a.status === 'blocked') itens.push({ ...base, tipo: 'aprovacao', ts: ((p.desde ||= {})[id + ':blocked:' + a.address] ||= Date.now()) });
+        else if (a.pergunta) itens.push({ ...base, tipo: 'pergunta', ts: a.pergunta.ts, trecho: a.pergunta.trecho, opcoes: a.pergunta.opcoes || [], autoriza: !!a.pergunta.autoriza });
+        else if (a.status === 'done') itens.push({ ...base, tipo: 'terminou', ts: ((p.desde ||= {})[id + ':done:' + a.address + ':' + a.turn] ||= Date.now()) });
+      }
+    });
+    itens.sort((x, y) => ({ aprovacao: 0, pergunta: 1, terminou: 2 }[x.tipo] - { aprovacao: 0, pergunta: 1, terminou: 2 }[y.tipo]) || y.ts - x.ts);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ itens, andares: projects.map((p, i) => ({ id: p.id, nome: p.ui.title || p.id, andar: i + 1 })) }));
+  }
   if (url.pathname === '/pergunta' && req.method === 'GET') {
     const p = projOf(url), a = p?.agents[url.searchParams.get('agent') || ''];
     if (!a) { res.writeHead(404); return res.end('agente não está no ar'); }

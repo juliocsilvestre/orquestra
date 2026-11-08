@@ -1228,7 +1228,7 @@ document.addEventListener('click', async (e) => {
   if (a === 'login') return abrirLoginConta(b.dataset.n);
   if (a === 'renomear') {
     const bg = document.createElement('div'); bg.className = 'mbg';
-    bg.innerHTML = `<div class="mdl frm" role="dialog" aria-modal="true"><h4>Nome da conta</h4><label>Como você quer chamar esta conta</label><input id="rnN" maxlength="30" value="${esc(b.dataset.nome)}" placeholder="ex.: Pessoal, Trabalho, Cliente"><small>Aparece no topo, no painel e na escolha de conta dos agentes.</small><div class="mact"><button class="mc">Cancelar</button><button class="mo">Salvar</button></div></div>`;
+    bg.innerHTML = `<div class="mdl frm" role="dialog" aria-modal="true"><h4>Nome da conta</h4><label>Como você quer chamar esta conta</label><input id="rnN" maxlength="30" value="${esc(b.dataset.nome)}" placeholder="ex.: Pessoal, Trabalho, DECEA"><small>Aparece no topo, no painel e na escolha de conta dos agentes.</small><div class="mact"><button class="mc">Cancelar</button><button class="mo">Salvar</button></div></div>`;
     const nome = await new Promise((res) => { bg.addEventListener('click', (ev) => { if (ev.target === bg || ev.target.classList.contains('mc')) { bg.remove(); res(null); } if (ev.target.classList.contains('mo')) { const v = bg.querySelector('#rnN').value; bg.remove(); res(v); } }); document.body.appendChild(bg); setTimeout(() => bg.querySelector('#rnN').select(), 30); });
     if (nome === null) return;
     const r = await post('/contas', { action: 'renomear', id: b.dataset.id, nome }); document.getElementById('sendSt').textContent = r.out || ''; return carregaContasClaude();
@@ -1678,7 +1678,9 @@ document.getElementById('termHerdr')?.addEventListener('click', async () => {
 });
 
 // ---------- "precisa de você": faixa no topo, aviso do Mac clicável e janela para responder ----------
-function faixaBloqueio() {
+function faixaBloqueio() { document.getElementById('bloqFaixa')?.remove(); return; // a faixa do topo deu lugar ao sino de notificações (cabeçalho)
+}
+function faixaBloqueioAntiga() {
   let el = document.getElementById('bloqFaixa');
   const bl = Object.entries(S.agents || {}).filter(([, a]) => a.status === 'blocked').map(([id]) => id);
   const pq = Object.entries(S.agents || {}).filter(([, a]) => a.status !== 'blocked' && a.pergunta).map(([id]) => id);
@@ -1772,3 +1774,4 @@ function mostraAtualizou() {
   document.body.appendChild(d);
 }
 checaVersao();
+window.orqAbrirConversa = (id) => abrirConversa(id);

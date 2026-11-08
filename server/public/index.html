@@ -269,6 +269,7 @@
 </script>
 <script type="module">
   const p = new URLSearchParams(location.search).get('p');
+  import('./sino.js').catch((e) => console.error('sino', e));
   import(p ? './app.js' : './predio.js')
     .then(() => { if (!window.__esperaInit) window.bootDone(); })
     .catch((e) => mostraErro(String(e && (e.stack || e.message) || e)));
