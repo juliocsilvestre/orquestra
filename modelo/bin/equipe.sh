@@ -62,7 +62,7 @@ for i in "${!nomes[@]}"; do
 done
 
 # 2) pré-aprova a confiança das pastas, uma escrita por conta (antes de subir qualquer sessão)
-for c in 1 2; do
+for c in $(printf '%s\n' "${contas[@]}" | grep -E '^[0-9]+$' | sort -u); do
   ds=(); for i in "${!nomes[@]}"; do [ "${contas[$i]}" = "$c" ] && ds+=("${pastas[$i]}"); done
   if [ ${#ds[@]} -gt 0 ]; then trust_dirs "$(conta_dir "$c")" "${ds[@]}"; fi
 done
@@ -83,6 +83,8 @@ Para falar com o Boss use SEMPRE: $ORQ/bin/avisa-boss.sh \"<texto>\" (nunca hc s
   fi
   # agente pode ter regras próprias (<pasta>/agente-settings.json) e argumentos extras (<pasta>/agente.args, aceita {PROJ} e {ORQ})
   sett="$ORQ/dev-settings.json"; [ -f "$dir/agente-settings.json" ] && sett="$dir/agente-settings.json"
+  # skills que você liberou para este agente (Orquestra → Skills → liberar): settings próprio sem esse bloqueio
+  if [ -s "$ORQ/skills/$nome/liberadas.json" ] && python3 "$ORQ/bin/skills_sync.py" "$ORQ" "$nome" "$dir" "$sett" --gerar-settings "$ORQ/skills/$nome/settings.gerado.json" 2>/dev/null; then sett="$ORQ/skills/$nome/settings.gerado.json"; fi
   xargs_=(); if [ -f "$dir/agente.args" ]; then while IFS= read -r a; do [ -n "$a" ] && xargs_+=("$(printf '%s' "$a" | sed "s#{PROJ}#$PROJ#g; s#{ORQ}#$ORQ#g")"); done < "$dir/agente.args"; fi
   # skills só deste agente + skills da equipe toda (pastas carregadas com --add-dir; editáveis pelo Orquestra)
   mkdir -p "$ORQ/skills/$nome/.claude/skills" "$ORQ/skills/_equipe/.claude/skills"
@@ -94,8 +96,18 @@ $(cat "$ORQ/agentes/$nome.md")"; fi
   sessao_args equipe "$nome" "$cfg" "$dir"; [ -n "$MEM_TXT" ] && extra="$extra
 
 $MEM_TXT"
+  if [[ "${contas[$i]}" =~ ^[0-9]+$ ]]; then
   hc run --bg --no-notify --label "orq.projeto=$PROJ_ID" --name "$(tn "$nome")" --cwd "$dir" -- env ${cfg:+"CLAUDE_CONFIG_DIR=$cfg"} claude ${SESS_ARGS[@]+"${SESS_ARGS[@]}"} ${mdl:+--model "$mdl"} --settings "$sett" --add-dir "$ORQ/skills/$nome" --add-dir "$ORQ/skills/_equipe" ${xargs_[@]+"${xargs_[@]}"} --append-system-prompt "$extra" >/dev/null \
     && echo "+ $nome (conta ${contas[$i]})" || echo "x $nome não subiu"
+  else
+    # outro motor de IA (Codex, Gemini, Cursor, Copilot): as instruções vão como 1ª mensagem
+    inst="$ORQ/relatorios/$nome/.instrucoes.md"; mkdir -p "$(dirname "$inst")"
+    papel="$inst.papel"; { printf '%s\n' "$extra"; [ -f "$dir/CLAUDE.md" ] && { echo; cat "$dir/CLAUDE.md"; }; } > "$papel"
+    # as mesmas regras, proibições e skills da equipe, por escrito (esses motores não leem as do Claude Code)
+    python3 "$ORQ/bin/instrucoes-motor.py" "$ORQ" "$nome" "$dir" "$sett" "$papel" > "$inst" 2>/dev/null || cp "$papel" "$inst"
+    hc run --bg --no-notify --label "orq.projeto=$PROJ_ID" --name "$(tn "$nome")" --cwd "$dir" -- "$ORQ/bin/motor.sh" "${contas[$i]}" "${mdl:--}" "$inst" >/dev/null \
+      && echo "+ $nome (${contas[$i]})" || echo "x $nome não subiu"
+  fi
   sleep 0.8
 done
 [ -n "$SO" ] || echo "$VERSAO" > "$VFILE"

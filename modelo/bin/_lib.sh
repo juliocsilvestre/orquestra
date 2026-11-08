@@ -1,5 +1,5 @@
 # Funções comuns (source)
-conta_dir() { case "$1" in 1) echo "${CONTA1_DIR:-}";; 2) echo "${CONTA2_DIR:-$HOME/.claude-conta2}";; *) echo "";; esac; }
+conta_dir() { case "$1" in 1) echo "${CONTA1_DIR:-}";; 2) echo "${CONTA2_DIR:-$HOME/.claude-conta2}";; [3-9]) eval "echo \"\${CONTA$1_DIR:-$HOME/.claude-conta$1}\"";; *) echo "";; esac; }
 
 base_branch() {
   local repo="$1" b
@@ -32,7 +32,8 @@ PY
 }
 
 # Nome do terminal no Herdr = <projeto>-<agente> (ex.: loja-qa, blog-qa): os nomes do Herdr sao globais, assim cada andar tem os seus.
-tn() { echo "${PROJ_ID}-$1"; }
+# nome do terminal no Herdr (o hc aceita até 32 caracteres): se passar, encurta com um código fixo no fim (igual ao tnHc do servidor)
+tn() { local n="${PROJ_ID}-$1" h=0 i c; if [ ${#n} -le 32 ]; then echo "$n"; return; fi; for ((i=0;i<${#n};i++)); do printf -v c %d "'${n:i:1}"; h=$(( (h*31 + c) % 1000003 )); done; printf '%s-%05d\n' "${n:0:26}" $((h % 100000)); }
 # hc_status <agente> -> working|blocked|done|idle|-|ausente
 hc_status() {
   hc ls --json 2>/dev/null | python3 -c 'import json,sys

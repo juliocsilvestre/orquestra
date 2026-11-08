@@ -35,7 +35,7 @@ const KIND = {
   think: { label: '', css: '#8a7f75' },
   wait: { label: 'acompanhando', css: 'var(--inspect)' },
 };
-const STATUS_TXT = { working: 'trabalhando', blocked: 'precisa de você', done: 'terminou', idle: 'aguardando', unknown: '—' };
+const STATUS_TXT = { starting: 'subindo…', working: 'trabalhando', blocked: 'precisa de você', done: 'terminou', idle: 'aguardando', unknown: '—' };
 
 function parseId(id) {
   if (id === 'boss') return { repo: null, slug: null, title: 'Boss' };
@@ -221,7 +221,7 @@ const SPECIAL_DESK = {};
   const BY_DECOR = { kanban: SPOT.taiga, screen: SPOT.logs, qa: SPOT.qa, gitlab: SPOT.gitlab, revisor: SPOT.revisor };
   for (const id of Object.keys(SPECIAL)) { let p = SPOT[id] || BY_DECOR[SPECIAL[id].decor]; if (!p || usados.has(k(p))) p = SPARE.find((x) => !usados.has(k(x))) || SPARE[0]; usados.add(k(p)); SPECIAL_DESK[id] = p; } }
 const SPECIAL_POS = Object.values(SPECIAL_DESK);
-const DOOR = new THREE.Vector3(W / 2 - 1.5, 0, D / 2 - 1.2);
+const DOOR = new THREE.Vector3(W / 2 - 2.6, 0, -D / 2 + 2.2); // em frente ao elevador (é por ele que os agentes entram e saem)
 // cantinho do QA: tela grande com checklist verde/vermelho + mesa de testes
 if (SPECIAL.qa) {
   const p = SPECIAL_DESK.qa;
@@ -238,6 +238,75 @@ if (SPECIAL.gitlab || SPECIAL.github) {
   [0x4fd18b, 0x4fd18b, 0x5aa9ff, 0x8a7f75].forEach((c, i) => { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.05, 16), mat(c, { emissive: c, emissiveIntensity: 0.9 })); b.rotation.z = Math.PI / 2; b.position.set(0.09, 2.85, -0.75 + i * 0.5); g.add(b); if (i < 3) box(0.03, 0.04, 0.3, 0, 0.08, 2.85, -0.5 + i * 0.5, g, mat(0x8a7f75)); });
 }
 
+// mural "sobre este andar": uma folha limpa presa com fita na parede do fundo; clicando, abre as informações do andar
+const quadroInfo = new THREE.Group(); quadroInfo.position.set(-12, 0, -D / 2 + 0.2); scene.add(quadroInfo);
+let infoAndar = null;
+function desenhaPapel() {
+  for (const n of ['papel', 'sombra', 'fita']) { const o = quadroInfo.getObjectByName(n); if (o) quadroInfo.remove(o); }
+  const I = infoAndar || {}, cor = UI.colors ? '#e8875a' : '#e8875a';
+  const quebra = (g, txt, x, y, larg, lh, max) => { const ws = String(txt || '').replace(/\s+/g, ' ').trim().split(' '); let l = '', n = 0; for (const w of ws) { const tt = l ? l + ' ' + w : w; if (g.measureText(tt).width > larg && l) { if (n === max - 1) { while (g.measureText(l + '…').width > larg && l.length) l = l.slice(0, -1); g.fillText(l + '…', x, y + n * lh); return n + 1; } g.fillText(l, x, y + n * lh); l = w; n++; } else l = tt; } if (l && n < max) { g.fillText(l, x, y + n * lh); n++; } return n; };
+  const FONT = '-apple-system, "SF Pro Display", Inter, "Helvetica Neue", sans-serif';
+  const tex = canvasTex(900, 1150, (g, w, h) => {
+    g.fillStyle = '#fbf8f3'; g.fillRect(0, 0, w, h);
+    const grad = g.createLinearGradient(0, 0, 0, h); grad.addColorStop(0, 'rgba(255,255,255,0)'); grad.addColorStop(1, 'rgba(120,100,80,0.06)'); g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    const X = 84; let y = 150;
+    try { g.letterSpacing = '6px'; } catch {}
+    g.fillStyle = cor; g.beginPath(); g.arc(X + 9, y - 11, 9, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#9a8c80'; g.font = `600 26px ${FONT}`; g.fillText('SOBRE ESTE ANDAR', X + 32, y);
+    try { g.letterSpacing = '0px'; } catch {}
+    y += 92; g.fillStyle = '#1f1a17'; g.font = `700 76px ${FONT}`; y += (quebra(g, I.titulo || UI.title || 'Projeto', X, y, w - 2 * X, 84, 2) - 1) * 84;
+    y += 40; g.fillStyle = cor; g.fillRect(X, y, 72, 7);
+    y += 78; g.fillStyle = '#5b5047'; g.font = `400 36px ${FONT}`;
+    const nd = quebra(g, curta(I.descricao) || (I.titulo ? 'Sem descrição ainda.' : 'carregando…'), X, y, w - 2 * X, 52, 5); y += nd * 52 + 40;
+    if ((I.repos || []).length) {
+      try { g.letterSpacing = '5px'; } catch {} g.fillStyle = '#a3968a'; g.font = `600 22px ${FONT}`; g.fillText('REPOSITÓRIOS', X, y); try { g.letterSpacing = '0px'; } catch {}
+      y += 26; let x = X; g.font = `500 28px ${FONT}`;
+      for (const r of I.repos.slice(0, 4)) { const tw = g.measureText(r.nome).width, bw = Math.min(tw + 44, w - 2 * X); if (x + bw > w - X) { x = X; y += 64; } g.fillStyle = '#efe8df'; g.beginPath(); g.roundRect(x, y, bw, 50, 25); g.fill(); g.fillStyle = '#3c332d'; g.save(); g.beginPath(); g.rect(x, y, bw - 18, 50); g.clip(); g.fillText(r.nome, x + 22, y + 35); g.restore(); x += bw + 12; }
+    }
+    g.fillStyle = '#e7dfd5'; g.fillRect(X, h - 150, w - 2 * X, 2);
+    g.fillStyle = cor; g.font = `600 30px ${FONT}`; g.fillText('Ver tudo  →', X, h - 88);
+  });
+  const W2 = 2.3, H2 = 2.94;
+  const sombra = new THREE.Mesh(new THREE.PlaneGeometry(W2 + 0.12, H2 + 0.12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 }));
+  sombra.name = 'sombra'; sombra.position.set(0.06, 4.0, 0.01); sombra.rotation.z = -0.02; quadroInfo.add(sombra);
+  const papel = new THREE.Mesh(new THREE.PlaneGeometry(W2, H2), new THREE.MeshBasicMaterial({ map: tex }));
+  papel.name = 'papel'; papel.position.set(0, 4.08, 0.04); papel.rotation.z = -0.02; quadroInfo.add(papel);
+  const fita = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.26), new THREE.MeshBasicMaterial({ color: 0xe9dcc2, transparent: true, opacity: 0.85 }));
+  fita.name = 'fita'; fita.position.set(0.05, 4.08 + H2 / 2 - 0.02, 0.06); fita.rotation.z = 0.06; quadroInfo.add(fita);
+}
+desenhaPapel();
+fetch('/andar/info?id=' + encodeURIComponent(PROJECT), { cache: 'no-store' }).then((r) => r.json()).then((I) => { if (!I.erro) { infoAndar = I; desenhaPapel(); } }).catch(() => {});
+// Markdown simples e bonito para o "sobre o projeto": títulos, listas, parágrafos, negrito, código e links
+function mdDoc(src) {
+  const inl = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>').replace(/(https?:\/\/[^\s)<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const out = []; let lista = null, par = [];
+  const fechaPar = () => { if (par.length) { out.push(`<p>${inl(par.join(' '))}</p>`); par = []; } };
+  const fechaLista = () => { if (lista) { out.push(`<${lista.t}>${lista.i.map((x) => `<li>${inl(x)}</li>`).join('')}</${lista.t}>`); lista = null; } };
+  for (const raw of String(src || '').replace(/\r/g, '').split('\n')) {
+    const l = raw.trim(); let m;
+    if (!l) { fechaPar(); fechaLista(); continue; }
+    if ((m = l.match(/^#{1,4}\s+(.*)/))) { fechaPar(); fechaLista(); out.push(`<h5>${inl(m[1])}</h5>`); continue; }
+    if ((m = l.match(/^[-*•]\s+(.*)/)) || (m = l.match(/^\d+[.)]\s+(.*)/))) { fechaPar(); const tg = /^\d/.test(l) ? 'ol' : 'ul'; if (!lista || lista.t !== tg) { fechaLista(); lista = { t: tg, i: [] }; } lista.i.push(m[1]); continue; }
+    if ((m = l.match(/^([^:]{2,40}):\s*$/))) { fechaPar(); fechaLista(); out.push(`<h5>${inl(m[1])}</h5>`); continue; }
+    if ((m = l.match(/^([A-ZÀ-Ú][\wÀ-ú ./()-]{1,28}):\s+(.+)$/))) { fechaPar(); fechaLista(); out.push(`<p class="kv"><b>${inl(m[1])}</b>${inl(m[2])}</p>`); continue; }
+    fechaLista(); par.push(l);
+  }
+  fechaPar(); fechaLista(); return out.join('');
+}
+function curta(s) { s = String(s || '').replace(/\s+/g, ' ').trim(); if (s.length <= 160) return s; const m = s.match(/^(.{40,160}?[.!?])\s/); return m ? m[1] : s.slice(0, 157) + '…'; }
+function mostrarInfoAndar() {
+  const I = infoAndar || {}, bg = document.createElement('div'); bg.className = 'mbg';
+  const andarN = (ROOMS || []).findIndex((r) => r.id === PROJECT) + 1;
+  const ini = (I.titulo || UI.title || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  bg.innerHTML = `<div class="mdl wide infoA" role="dialog" aria-modal="true">
+    <div class="iaH"><div class="iaIc">${esc(ini)}</div><div class="iaT"><div class="iaK">${andarN ? andarN + 'º ANDAR' : 'ANDAR'} · SOBRE O PROJETO</div><h3>${esc(I.titulo || UI.title || '')}</h3>${I.descricao ? `<p class="iaD" title="${esc(I.descricao)}">${esc(curta(I.descricao))}</p>` : ''}</div><button class="iaX mc" title="Fechar">✕</button></div>
+    <div class="iaMeta"><span class="iaChip" title="${esc(I.pasta || '')}">📁 <code>${esc(I.pasta || '')}</code></span>${(I.repos || []).map((r) => `<span class="iaChip"><i class="iaDot ${r.dev ? 'on' : ''}"></i>${esc(r.nome)}${r.dev ? '<small>dev</small>' : ''}</span>`).join('')}</div>
+    <div class="iaBody">${I.sobre ? mdDoc(I.sobre) : '<div class="iaVazio">Ainda não há uma descrição do projeto.<br><small>Ela é o que o Boss sabe sobre o projeto — vale preencher.</small></div>'}</div>
+    <div class="iaF"><span>É isso que o Boss sabe do projeto.</span><button class="sb" data-x="editar">Editar</button><button class="sb pri mc">Fechar</button></div></div>`;
+  const fim = () => { bg.classList.add('out'); setTimeout(() => bg.remove(), 150); };
+  bg.addEventListener('click', (e) => { if (e.target === bg || e.target.closest('.mc')) return fim(); if (e.target.dataset.x === 'editar') { fim(); import('./andar.js').then((m) => m.abrirInfoAndar(PROJECT)); } });
+  document.body.appendChild(bg);
+}
 // cantinho do Revisor: quadro com o grafo de branches (o que outros devs subiram)
 if (Object.values(SPECIAL).some((x) => x.decor === 'revisor')) {
   const id = Object.keys(SPECIAL).find((k) => SPECIAL[k].decor === 'revisor'), p = SPECIAL_DESK[id];
@@ -482,6 +551,8 @@ function tick() {
             const tgt = c.job.to; if (tgt) tgt.attentionUntil = now + 3800;
           } else if (c.after === 'aprender') {
             c.mode = 'fora'; c.g.visible = false; c.label.style.opacity = '.35'; c.voltaEm = now + (c.foraMs || 3500);
+          } else if (c.after === 'gone' && S.agents[c.id]) {
+            c.leaving = false; c.after = 'home'; c.path = [c.home.clone()]; continue;
           } else if (c.after === 'gone') {
             scene.remove(c.g); c.label.remove(); c.bubble?.remove(); chars.delete(c.id); continue;
           } else { c.mode = 'home'; c.speed = 1; c.alarm = false; nextVisit(c); }
@@ -567,8 +638,8 @@ renderer.domElement.addEventListener('click', (e) => {
   const dh = ray.intersectObjects(doors.map((d) => d.group), true)[0];
   if (dh) { const d = doors.find((x) => { let o = dh.object; while (o) { if (o === x.group) return true; o = o.parent; } return false; }); if (d) return goRoom(d.room.id); }
   const hit = ray.intersectObjects([...chars.values()].map((c) => c.g), true)[0];
-  if (!hit) return;
-  for (const c of chars.values()) { let o = hit.object; while (o) { if (o === c.g) { if (selected === c.id) return openScreen(c.id); return select(c.id); } o = o.parent; } }
+  if (!hit) { if (ray.intersectObject(quadroInfo, true)[0]) mostrarInfoAndar(); return; }
+  for (const c of chars.values()) { let o = hit.object; while (o) { if (o === c.g) { if (S.agents[c.id]?.status === 'blocked') return abrirResposta(c.id); if (S.agents[c.id]?.pergunta) return abrirConversa(c.id); if (selected === c.id) return openScreen(c.id); return select(c.id); } o = o.parent; } }
 });
 addEventListener('pointerup', () => { drag = null; renderer.domElement.style.cursor = 'grab'; });
 addEventListener('pointermove', (e) => { if (drag == null) return; az -= (e.clientX - drag) * 0.006; drag = e.clientX; placeCamera(); });
@@ -579,15 +650,23 @@ function syncChars() {
   const live = new Set(Object.keys(S.agents));
   for (const id of live) {
     const c = ensureChar(id), a = S.agents[id];
+    if (c.leaving && !c.aprendendo) { c.leaving = false; c.g.visible = true; c.mode = 'walking'; c.after = 'home'; c.path = [c.home.clone()]; }
     if (a.status === 'done' && c.prevStatus !== 'done' && c.prevStatus) c.hopT = 1.2;
     c.prevStatus = c.status; c.status = a.status;
+    if (a.status === 'blocked' && c.prevStatus && c.prevStatus !== 'blocked') avisaBloqueio(id);
     const { title } = parseId(id);
     const st = a.status;
-    c.label.className = 'label' + (st === 'blocked' ? ' blocked' : '');
-    c.label.innerHTML = `<span class="dot" style="background:${hex(colorFor(id))}"></span>${esc(title)}${st === 'blocked' ? ' · precisa de você' : st === 'done' ? ' ✓' : ''}`;
+    const pq = st !== 'blocked' && a.pergunta;
+    c.label.className = 'label' + (st === 'blocked' ? ' blocked' : pq ? ' pergunta' : '');
+    c.label.dataset.id = id;
+    const lh = `${pq ? '<b class="excl">!</b>' : st === 'blocked' ? '<b class="excl red">!</b>' : ''}<span class="dot" style="background:${hex(colorFor(id))}"></span>${esc(title)}${st === 'blocked' ? ' · precisa de você' : pq ? ' · quer falar com você' : st === 'done' ? ' ✓' : ''}`;
+    if (c.label.dataset.h !== lh) { c.label.dataset.h = lh; c.label.innerHTML = lh; }
+    if (pq && c.perguntaTs !== a.pergunta.ts) { if (c.perguntaTs !== undefined) avisaPergunta(id, a.pergunta); c.hopT = 1.2; }
+    c.perguntaTs = pq ? a.pergunta.ts : null;
   }
   for (const c of chars.values()) { if (c.aprendendo && live.has(c.id) && c.mode === 'fora' && c.saiuDoAr) c.podeVoltar = true; if (c.aprendendo && !live.has(c.id)) c.saiuDoAr = true; if (!live.has(c.id) && !c.leaving) removeChar(c); }
   document.getElementById('empty').style.display = S.hcOk && !live.has('boss') ? 'block' : 'none';
+  faixaBloqueio();
 }
 
 const ORDER = (id) => {
@@ -619,9 +698,10 @@ async function sendMsg() {
   st.textContent = 'enviando…';
   try {
     const r = await fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': S.token || '' }, body: JSON.stringify({ project: PROJECT, agent: to, text }) });
+    if (r.status === 409 && r.headers.get('X-Orq') === 'bloqueado') { st.textContent = ''; return abrirResposta(to, text); }
     if (!r.ok) throw new Error(await r.text());
     ta.value = ''; st.textContent = 'enviado para ' + (to === 'boss' ? 'Boss' : SPECIAL[to]?.title || to);
-  } catch (err) { st.textContent = 'erro: ' + err.message; }
+  } catch (err) { st.textContent = 'não enviado'; avisa('Mensagem não enviada', err.message); }
 }
 document.getElementById('send').addEventListener('click', sendMsg);
 document.getElementById('notif').addEventListener('click', async () => { try { const r = await Notification.requestPermission(); document.getElementById('sendSt').textContent = r === 'granted' ? 'avisos do Mac ligados' : 'avisos não permitidos'; } catch {} });
@@ -633,7 +713,13 @@ document.getElementById('cards').addEventListener('click', async (e) => {
     e.stopPropagation();
     const ag = b.dataset.agent, action = b.dataset.ag, nm = ag === 'boss' ? 'Boss' : SPECIAL[ag]?.title || LABEL(parseId(ag).repo) || ag;
     if (action === 'stop' && !(await confirma(`Dispensar ${nm}?`, 'Ele sai do escritório. O que estiver fazendo agora é interrompido.', true, 'Dispensar'))) return;
-    if (action === 'restart' && !(await confirma(`Reiniciar ${nm}?`, 'Ele sai e volta com o contexto limpo (as instruções e a mesa continuam as mesmas).', false, 'Reiniciar'))) return;
+    if (action === 'restart' && !(await confirma(`Reiniciar ${nm}?`, 'Ele sai pelo elevador e volta com o contexto limpo (as instruções e a mesa continuam as mesmas).', false, 'Reiniciar'))) return;
+    if (action === 'ok') { b.disabled = true; await post('/agent', { agent: ag, action: 'ok' }); return; }
+    if (action === 'herdr') return abrirNoHerdr(ag, document.getElementById('sendSt'));
+    if (action === 'responder') return abrirResposta(ag);
+    if (action === 'falar') return abrirConversa(ag);
+    if (action === 'interromper') { b.disabled = true; const r = await post('/agent', { agent: ag, action }).catch((er) => ({ ok: false, out: er.message })); document.getElementById('sendSt').textContent = r.out || ''; if (!r.ok) avisa('Não deu certo', r.out || 'falhou'); return; }
+    if (action === 'restart') { aprender(ag, 'um contexto novo'); const c0 = chars.get(ag); if (c0) setTimeout(() => { c0.saiuDoAr = true; c0.podeVoltar = true; }, 7000); }
     const st = document.getElementById('sendSt'); st.textContent = (action === 'start' ? 'chamando ' : action === 'stop' ? 'dispensando ' : 'reiniciando ') + nm + '…';
     b.disabled = true;
     try {
@@ -699,6 +785,8 @@ function setViewTab(tabName) {
   if (tabName === 'tela') { loadScreen(viewAgent); screenTimer = setInterval(() => loadScreen(viewAgent), 2000); }
 }
 function openScreen(id, tabName = 'chat') {
+  const qk = document.getElementById('scrQuick'); if (qk && qk.dataset.agent !== id) qk.remove();
+  if (S.agents?.[id]?.pergunta) setTimeout(() => { if (viewAgent === id && !document.getElementById('scrQuick')) respostasRapidas(id, S.agents[id]?.pergunta); }, 0);
   if (viewAgent !== id) { citacao = null; const q = document.getElementById('scrQuote'); if (q) q.style.display = 'none'; }
   viewAgent = id; setTimeout(() => montaVia(id, !!citacao), 0);
   document.getElementById('scrTitle').textContent = nmOf(id);
@@ -757,14 +845,31 @@ async function loadSkills(id) {
   try { skData = await fetch('/skills?' + qs({ p: PROJECT, agent: id }), { cache: 'no-store' }).then((r) => r.json()); } catch (e) { box.innerHTML = '<div class="note">erro: ' + esc(e.message) + '</div>'; return; }
   renderSkills();
 }
+const haQuanto = (ms) => { if (!ms) return 'nunca'; const s = Math.round((Date.now() - ms) / 1000); return s < 60 ? 'agora há pouco' : s < 3600 ? `há ${Math.round(s / 60)} min` : s < 86400 ? `há ${Math.round(s / 3600)} h` : new Date(ms).toLocaleString('pt-BR'); };
+function caixaMotor(m, tipo) {
+  if (!m) return '';
+  const s = m.sync;
+  return `<div class="motorBox"><b class="t">🔄 ${esc(nmOf(viewAgent))} roda no ${esc(m.nome || m.id)} — recebe as mesmas regras e skills da equipe</b>
+    ${tipo === 'skills' ? `As skills abaixo são <b>copiadas</b> para <code>${esc(m.pasta || '.agents/skills')}</code> na pasta dele. Codex, Gemini, Cursor e Copilot seguem o mesmo padrão de skills (pasta com SKILL.md) e carregam de lá sozinhos.
+    <ul><li>Bloqueadas nas permissões dele não são copiadas, a não ser que você libere (abaixo).</li><li>Criar, editar, ativar ou remover aqui sincroniza na hora. Alguns motores só percebem ao reiniciar o agente.</li><li>A pasta fica fora do git (nunca entra em commit).</li></ul>
+    <span class="note" style="margin:0">Última sincronização: ${s ? `${haQuanto(s.quando)} · ${s.n} skill(s)` : 'ainda não sincronizado'}</span><br>
+    <button class="sb" data-sk="sync">Sincronizar agora</button> <button class="sb" data-sk="sync-todos" title="Todos os agentes deste andar que rodam em outros motores">Sincronizar todos os motores do andar</button>`
+    : `Ao subir, ele recebe por escrito:<ul><li><b>Regras do projeto</b>: os CLAUDE.md/AGENTS.md da pasta dele e das pastas acima.</li><li><b>PROIBIDO</b>: as mesmas regras de bloqueio da equipe (arquivos sensíveis, comandos, outros andares). Push, merge e deploy só com a sua autorização via Boss.</li><li><b>Skills</b>: as mesmas da equipe, sincronizadas em <code>.agents/skills</code> (aba Skills).</li></ul>
+    Ele também roda no modo que pede aprovação antes de executar comandos (você aprova pela aba Tela).
+    <span class="note" style="margin:4px 0 0;display:block">Atenção: no Claude as proibições são bloqueio técnico. Nos outros motores são orientação + aprovação manual. Para o que é crítico (push, merge, segredos), prefira agentes Claude.</span>`}</div>`;
+}
 function renderSkills() {
   const d = skData, box = document.getElementById('scrSkills'); if (!d?.fontes) { box.innerHTML = '<div class="note">' + esc(d?.erro || 'sem dados') + '</div>'; return; }
   const total = d.fontes.reduce((n, f) => n + f.skills.filter((x) => !x.bloqueada).length, 0);
-  const linha = (f, x) => `<div class="sk ${x.desativada || x.bloqueada ? 'off' : ''}"><div><b>${esc(x.plugin ? x.plugin + ':' + x.nome : x.nome)}</b>${x.desativada ? '<span class="bdg">desativada</span>' : ''}${x.bloqueada ? '<span class="bdg bad" title="Bloqueada pelas permissões deste agente">bloqueada</span>' : ''}${x.plugin && !x.ativo ? '<span class="bdg">plugin desligado</span>' : ''}
+  const linha = (f, x) => `<div class="sk ${x.desativada || x.bloqueada ? 'off' : ''}"><div><b>${esc(x.plugin ? x.plugin + ':' + x.nome : x.nome)}</b>${x.desativada ? '<span class="bdg">desativada</span>' : ''}${x.bloqueada ? '<span class="bdg bad" title="Bloqueada pelas regras de permissão deste agente/projeto">bloqueada</span>' : ''}${x.liberada ? '<span class="bdg on" title="Bloqueada pelas regras do projeto, mas você liberou para este agente">liberada por você</span>' : ''}${x.plugin && !x.ativo ? '<span class="bdg">plugin desligado</span>' : ''}
       <div class="sm">${esc(x.descricao || '(sem descrição)')}</div></div>
-    <div class="bt"><button class="sb" data-sk="ver" data-arq="${esc(x.arquivo)}">ver</button>${f.editavel ? `${x.desativada ? '' : `<button class="sb" data-sk="editar" data-arq="${esc(x.arquivo)}" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">editar</button>`}<button class="sb" data-sk="${x.desativada ? 'ativar' : 'desativar'}" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">${x.desativada ? 'ativar' : 'desativar'}</button><button class="sb" data-sk="remover" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">remover</button>` : `<button class="sb" data-sk="copiar" data-arq="${esc(x.arquivo)}" data-nome="${esc(x.pasta || x.nome)}" title="Copia para as skills só deste agente (aí dá para editar)">copiar p/ este agente</button>`}</div></div>`;
-  box.innerHTML = `<div class="ssAct"><button class="sb pri" data-sk="nova" data-esc="agente">＋ Nova skill só deste agente</button><button class="sb" data-sk="nova" data-esc="equipe">＋ Nova skill para a equipe toda</button>
-      <p class="note">${total} skill(s) disponível(is) para ${esc(nmOf(d.agente.id))} (conta ${esc(d.agente.conta)}). Criar, editar ou ativar vale nas próximas mensagens, sem reiniciar.</p></div>
+    <div class="bt"><button class="sb" data-sk="ver" data-arq="${esc(x.arquivo)}">ver</button>${x.bloqueada && d.agente.id !== 'boss' ? `<button class="sb" data-sk="liberar" data-skn="${esc(x.plugin ? x.plugin + ':' + x.nome : x.nome)}" title="Libera só para este agente">liberar</button>` : ''}${x.liberada ? `<button class="sb" data-sk="bloquear" data-skn="${esc(x.plugin ? x.plugin + ':' + x.nome : x.nome)}">bloquear de novo</button>` : ''}${f.editavel ? `${x.desativada ? '' : `<button class="sb" data-sk="editar" data-arq="${esc(x.arquivo)}" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">editar</button>`}<button class="sb" data-sk="${x.desativada ? 'ativar' : 'desativar'}" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">${x.desativada ? 'ativar' : 'desativar'}</button><button class="sb" data-sk="remover" data-esc="${f.escopo}" data-nome="${esc(x.pasta)}">remover</button>` : `<button class="sb" data-sk="copiar" data-arq="${esc(x.arquivo)}" data-nome="${esc(x.pasta || x.nome)}" title="Copia para as skills só deste agente (aí dá para editar)">copiar p/ este agente</button>`}</div></div>`;
+  const blq = [...new Set(d.fontes.flatMap((f) => f.skills.filter((x) => x.bloqueada).map((x) => x.plugin ? x.plugin + ':' + x.nome : x.nome)))], lib = [...new Set(d.fontes.flatMap((f) => f.skills.filter((x) => x.liberada).map((x) => x.nome)))];
+  const avisoBlq = blq.length || lib.length ? `<div class="motorBox" style="border-color:var(--blocked)"><b class="t">${blq.length ? `🔒 ${blq.length} skill(s) bloqueada(s) para ${esc(nmOf(d.agente.id))}${lib.length ? ` · ${lib.length} liberada(s) por você` : ''}` : `🔓 ${lib.length} skill(s) liberada(s) por você para ${esc(nmOf(d.agente.id))}`}</b>
+    ${blq.length ? `Bloqueadas pelas regras de permissão do projeto (geralmente por segurança): ${blq.map((n) => `<code>${esc(n)}</code>`).join(' ')}.` : ''}
+    ${!blq.length ? '' : d.agente.id === 'boss' ? 'O Boss sempre segue as regras do projeto.' : `${d.agente.motor ? 'Elas não são copiadas para o motor dele. ' : ''}Se quiser, use <b>liberar</b> na skill: vale só para este agente, os outros continuam bloqueados.`}${lib.length ? `${blq.length ? '<br>' : ''}Liberadas (estavam bloqueadas pelas regras do projeto): ${lib.map((n) => `<code>${esc(n)}</code>`).join(' ')}. Use <b>bloquear de novo</b> na skill para desfazer.` : ''}</div>` : '';
+  box.innerHTML = caixaMotor(d.agente.motor, 'skills') + avisoBlq + `<div class="ssAct"><button class="sb pri" data-sk="nova" data-esc="agente">＋ Nova skill só deste agente</button><button class="sb" data-sk="nova" data-esc="equipe">＋ Nova skill para a equipe toda</button>
+      <p class="note">${total} skill(s) disponível(is) para ${esc(nmOf(d.agente.id))} (${d.agente.motor ? 'motor' : 'conta'} ${esc(d.agente.conta)}).${d.agente.motor ? '' : ' Criar, editar ou ativar vale nas próximas mensagens, sem reiniciar.'}</p></div>
     ${d.fontes.map((f, i) => { const itens = [...f.skills, ...(f.desativadas || [])]; return `<details class="fonte" ${i < 2 || itens.length < 8 ? 'open' : ''}><summary><b>${esc(f.rotulo)}</b><span class="note">${itens.length} · <code title="${esc(f.pasta)}">${esc(tidy(f.pasta))}</code></span></summary>
       ${itens.length ? itens.map((x) => linha(f, x)).join('') : '<div class="sk"><div class="sm">nenhuma ainda</div></div>'}</details>`; }).join('')}`;
 }
@@ -793,6 +898,13 @@ document.getElementById('scrSkills').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-sk]'); if (!b) return;
   const act = b.dataset.sk, arq = b.dataset.arq, escopo = b.dataset.esc, nome = b.dataset.nome;
   const ler = () => fetch('/skill?' + qs({ p: PROJECT, agent: viewAgent, arquivo: arq }), { cache: 'no-store' }).then((r) => r.text());
+  if (act === 'liberar' || act === 'bloquear') {
+    const sk = b.dataset.skn;
+    if (act === 'liberar' && !(await confirma(`Liberar a skill ${sk} para ${nmOf(viewAgent)}?`, `Ela está bloqueada pelas regras de permissão do projeto, normalmente por segurança. Liberando, só ${nmOf(viewAgent)} passa a poder usá-la${skData?.agente?.motor ? ' (e ela é copiada para o motor dele)' : ''}; os outros agentes continuam bloqueados. Vale quando ele reiniciar. Dá para bloquear de novo a qualquer momento.`, true, 'Liberar'))) return;
+    const r = await post('/skills', { agent: viewAgent, action: act, nome: sk }).catch((er) => ({ ok: false, out: er.message }));
+    if (!r.ok) avisa('Não deu certo', r.out || 'falhou'); else document.getElementById('sendSt').textContent = r.out; return loadSkills(viewAgent);
+  }
+  if (act === 'sync' || act === 'sync-todos') { b.disabled = true; b.textContent = 'sincronizando…'; const r = await post('/skills', { agent: viewAgent, action: 'sincronizar', todos: act === 'sync-todos' }).catch((er) => ({ ok: false, out: er.message })); if (!r.ok) avisa('Não sincronizou', r.out || 'falhou'); else document.getElementById('sendSt').textContent = r.out; return loadSkills(viewAgent); }
   if (act === 'nova') return skillEditor({ titulo: 'Nova skill', esc: escopo });
   if (act === 'ver') { const t = await ler(); return modal({ title: nome || 'SKILL.md', text: t.length > 6000 ? t.slice(0, 6000) + '\n…' : t, info: true }); }
   if (act === 'editar') { const t = await ler(), sp = separaSkill(t); return skillEditor({ titulo: 'Editar skill', esc: escopo, nome, descricao: sp.descricao, conteudo: sp.corpo, travarNome: true }); }
@@ -809,13 +921,18 @@ async function loadInstr(id) {
   const box = document.getElementById('scrInstr'); box.innerHTML = '<div class="note">carregando…</div>';
   let d; try { d = await fetch('/agente?' + qs({ p: PROJECT, agent: id }), { cache: 'no-store' }).then((r) => r.json()); } catch (e) { box.innerHTML = 'erro: ' + esc(e.message); return; }
   const a = d.agente; if (!a) { box.innerHTML = '<div class="note">Este agente não está na equipe deste andar (dev extra, por exemplo).</div>'; return; }
+  setTimeout(() => { const sel = document.getElementById('inC'); if (sel) sel.onchange = () => { document.getElementById('inML').innerHTML = modelosDe(d.contas, sel.value).map((m) => `<option value="${esc(m)}">`).join(''); document.getElementById('inM').value = ''; }; }, 0);
   const dica = a.tipo === 'boss' ? 'É o CLAUDE.md do Boss: o que ele sabe do projeto, o fluxo e as regras. Vale ao reiniciar o Boss ou renovar o contexto.' : a.tipo === 'dev' ? 'Instruções EXTRAS deste dev, além do protocolo de todos os devs (ex.: padrões do repo, cuidados, o que nunca mexer). Vale quando ele reiniciar.' : 'É o CLAUDE.md deste especialista: o que ele faz, como, quando avisar quem. Vale quando ele reiniciar ou renovar o contexto.';
-  box.innerHTML = `<div class="frm"><p class="note" style="margin:0 0 8px">${esc(dica)}<br><code>${esc(a.arquivo)}</code> · conta ${esc(a.conta)}${a.modelo ? ' · ' + esc(a.modelo) : ''}</p>
+  box.innerHTML = caixaMotor(a.motor ? { id: a.motor, nome: a.motorNome || a.motor, sync: a.sync } : null, 'instr') + `<div class="frm"><div class="lin" style="margin-bottom:10px"><div><label style="margin-top:0">${a.tipo === 'boss' ? 'Conta do Claude' : 'Conta / motor de IA'}</label><select id="inC">${opcoesConta(d.contas, a.conta, a.tipo === 'boss')}</select></div>
+      <div><label style="margin-top:0">Modelo <span class="note" style="margin:0">(vazio = padrão)</span></label><input id="inM" list="inML" value="${esc(a.modelo || '')}" placeholder="padrão do motor"><datalist id="inML">${modelosDe(d.contas, a.conta).map((m) => `<option value="${esc(m)}">`).join('')}</datalist></div>
+      <div style="flex:none;align-self:end"><button class="sb" data-in="conta">Salvar e aplicar</button></div></div>
+    <p class="note" style="margin:0 0 8px">${esc(dica)}<br><code>${esc(a.arquivo)}</code></p>
     <textarea id="inT" rows="24" placeholder="${a.tipo === 'dev' ? 'ex.: Neste repo use sempre os componentes de src/ui; nunca altere as migrations antigas…' : ''}">${esc(a.instrucoes)}</textarea>
     <div class="mact" style="margin-top:10px"><button class="sb" data-in="salvar" title="Só grava — vale da próxima vez que ele subir">Só salvar</button><button class="sb pri" data-in="reiniciar">Salvar e aplicar agora</button></div></div>`;
 }
 document.getElementById('scrInstr').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-in]'); if (!b) return;
+  if (b.dataset.in === 'conta') { const r0 = await post('/agente', { agent: viewAgent, action: 'conta-modelo', conta: document.getElementById('inC').value, modelo: document.getElementById('inM').value }).catch((er) => ({ ok: false, out: er.message })); if (!r0.ok) return avisa('Não salvou', r0.out); return aplicarAprendizado(viewAgent, 'a nova conta/modelo'); }
   const r = await post('/agente', { agent: viewAgent, action: 'instrucoes', texto: document.getElementById('inT').value }).catch((er) => ({ ok: false, out: er.message }));
   if (!r.ok) return avisa('Não salvou', r.out || 'falhou');
   document.getElementById('sendSt').textContent = r.out;
@@ -849,13 +966,14 @@ document.getElementById('cards').addEventListener('click', async (e) => {
     <div id="naDev" style="display:none"><label>Repositório</label><select id="naR">${livres.map((r) => `<option>${esc(r.nome)}</option>`).join('')}</select></div>
     <label>O que ele deve fazer, como e quando (as instruções dele)</label>
     <textarea id="naI" rows="11" placeholder="Ex.: Você é o especialista em segurança. Quando o Boss pedir, revise o diff da tarefa procurando: segredos no código, SQL injection, XSS, dados pessoais em log, permissões faltando. Responda com uma lista por gravidade (alta/média/baixa), arquivo e linha, e a correção sugerida. Nunca rode scanners que façam requisições para fora."></textarea>
-    <div class="lin"><div><label>Conta do Claude</label><select id="naCo"><option value="2">conta 2 (equipe)</option><option value="1">conta 1</option></select></div><div><label>Modelo</label><select id="naM"><option value="sonnet">Sonnet (equilíbrio)</option><option value="haiku">Haiku (mais barato)</option><option value="opus">Opus (mais capaz, mais caro)</option></select></div></div>
+    <div class="lin"><div><label>Conta / motor de IA</label><select id="naCo">${opcoesConta(d.contas, (d.contas || []).some((c) => c.n === '2') ? '2' : '1')}</select></div><div><label>Modelo <span class="note" style="margin:0">(vazio = padrão)</span></label><input id="naM" list="naML" value="sonnet"><datalist id="naML">${modelosDe(d.contas, '2').map((m) => `<option value="${esc(m)}">`).join('')}</datalist></div></div>
     <div class="ck" id="naQaW"><input type="checkbox" id="naQa"><label for="naQa" style="margin:0">Pode pedir validação ao QA</label></div>
     <div class="ck"><input type="checkbox" id="naS" checked><label for="naS" style="margin:0">Já chamar para o escritório</label></div>
     <small>O Boss fica sabendo do novo agente. Depois dá para ajustar as instruções e as skills dele no card (Conversa → Instruções / Skills).</small>
     <div class="mact"><button class="mc">Cancelar</button><button class="mo">Criar agente</button></div></div>`;
   const $ = (x) => bg.querySelector(x);
   const tipo = () => $('#naT').value;
+  $('#naCo').onchange = () => { const ms = modelosDe(d.contas, $('#naCo').value); $('#naML').innerHTML = ms.map((m) => `<option value="${esc(m)}">`).join(''); $('#naM').value = ms[0] || ''; };
   $('#naT').onchange = () => { const dev = tipo() === 'dev'; $('#naEsp').style.display = dev ? 'none' : ''; $('#naDev').style.display = dev ? '' : 'none'; $('#naQaW').style.display = dev ? 'none' : ''; $('#naI').placeholder = dev ? 'Ex.: Neste repo siga o padrão de pastas por feature, use os componentes de src/ui e sempre rode npm test antes de passar ao QA.' : $('#naI').placeholder; };
   $('#naN').oninput = () => { if (!$('#naTi').dataset.mexeu) $('#naTi').value = $('#naN').value.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()); };
   $('#naTi').oninput = () => { $('#naTi').dataset.mexeu = 1; };
@@ -913,7 +1031,7 @@ function renderSide() {
     const sp = SPECIAL[id], { repo } = parseId(id);
     const nm = id === 'boss' ? 'Boss' : sp ? sp.title : LABEL(repo);
     return `<div class="card off mini" data-id="${esc(id)}"><div class="top"><div class="sw" style="background:${hex(colorFor(id))};opacity:.35"></div>
-      <div class="tt"><div class="nm" style="opacity:.6">${esc(nm)}</div></div><span class="pill st-off">fora do ar</span>
+      <div class="tt"><div class="nm" style="opacity:.6" title="${esc(nm)}">${esc(nm)}</div></div><span class="pill st-off">fora do ar</span>
       ${id === 'boss' ? `<button class="ab" data-cfg="boss" title="Instruções e skills">ajustar</button><button class="ab go" data-ag="start" data-agent="boss" title="Sobe o Boss no terminal do andar (com a equipe e os serviços). No Herdr: ${esc(UI.atalho || PROJECT)}">chamar</button>` : `<button class="ab" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</button><button class="ab go" data-ag="start" data-agent="${esc(id)}">chamar</button>`}</div></div>`;
   };
   const card = (id) => {
@@ -924,14 +1042,14 @@ function renderSide() {
     const sub = id === 'boss' ? 'orquestra, divide e revisa' : sp ? sp.sub : slug ? 'extra · ' + slug : 'dev residente';
     const open = selected === id || a.status === 'working' || a.status === 'blocked';
     const acc = ACCTS.find((x) => x.id === (a.conta || u.conta));
-    const conta = acc ? (acc.email ? acc.email.split('@')[0] : acc.id) : a.conta || u.conta || '';
+    const conta = acc ? (acc.nome || (acc.email ? acc.email.split('@')[0] : acc.id)) : a.conta || u.conta || '';
     return `<div class="card ${a.status} ${selected === id ? 'sel' : ''} ${open ? '' : 'mini'}" data-id="${esc(id)}">
       <div class="top"><div class="sw" style="background:${hex(colorFor(id))}"></div>
-        <div class="tt"><div class="nm">${esc(nm)}</div>${open ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
-        ${open ? '' : `<button class="ab" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</button>`}<span class="pill st-${a.status}">${STATUS_TXT[a.status] || a.status}</span></div>
+        <div class="tt"><div class="nm" title="${esc(nm)}">${esc(nm)}</div>${open ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+        ${open ? '' : `<button class="ab" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</button>`}${a.status === 'done' ? `<button class="pill st-done okp" data-ag="ok" data-agent="${esc(id)}" title="Clique para dar ok — volta para aguardando">terminou · ✓ ok</button>` : (a.pergunta && a.status !== 'blocked' ? `<button class="pill st-pergunta" data-ag="falar" data-agent="${esc(id)}" title="Ele terminou com uma pergunta para você — abrir a conversa">❗ quer falar com você</button>` : a.status === 'blocked' ? `<button class="pill st-blocked" data-ag="responder" data-agent="${esc(id)}" title="Ver a pergunta e responder">precisa de você · responder</button>` : `<span class="pill st-${a.status}">${STATUS_TXT[a.status] || a.status}</span>`)}</div>
       ${open ? `${a.title ? `<div class="task" title="${esc(a.title)}">${esc(clip(a.title, 90))}</div>` : ''}
       <div class="chips"><span class="chip tela" data-screen="${esc(id)}">conversa</span><span class="chip tela" data-cfg="${esc(id)}" title="Instruções e skills">ajustar</span>${conta ? `<span class="chip" title="${esc(acc?.email || '')}">${esc(conta)}</span>` : ''}${a.model || u.model ? `<span class="chip">${esc(String(a.model || u.model).replace('claude-', ''))}</span>` : ''}${a.ctx != null ? `<span class="chip" title="contexto usado">ctx ${a.ctx}%</span>` : ''}${id !== 'boss' && S.rework[id] ? `<span class="chip">${S.rework[id]} ajuste(s)</span>` : ''}</div>
-      ${id === 'boss' ? `<div class="acts"><button class="ab" data-ag="restart" data-agent="boss" title="/exit e sobe de novo (contexto conforme ⚙)">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="boss" title="/exit no Boss">dispensar</button></div>` : `<div class="acts"><button class="ab" data-ag="restart" data-agent="${esc(id)}" title="encerra e sobe de novo com contexto limpo">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="${esc(id)}">dispensar</button></div>`}
+      ${id === 'boss' ? `<div class="acts">${a.status === 'starting' ? `<button class="ab stop" data-ag="interromper" data-agent="boss" title="Manda Ctrl-C no terminal do andar: para a subida travada e descarta o que foi digitado nele">parar subida (Ctrl-C)</button>` : ''}<button class="ab" data-ag="herdr" data-agent="boss" title="Abre o terminal do Boss no app Herdr">Herdr</button><button class="ab" data-ag="restart" data-agent="boss" title="/exit e sobe de novo (contexto conforme ⚙)">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="boss" title="/exit no Boss">dispensar</button></div>` : `<div class="acts"><button class="ab" data-ag="herdr" data-agent="${esc(id)}" title="Abre o terminal deste agente no app Herdr">Herdr</button><button class="ab" data-ag="restart" data-agent="${esc(id)}" title="encerra e sobe de novo com contexto limpo">reiniciar</button><button class="ab stop" data-ag="stop" data-agent="${esc(id)}">dispensar</button></div>`}
       ${!u.msgs ? '' : `<div class="stats"><div>Hoje<b>${fmtUsd(u.today?.cost)}</b></div><div>Tokens hoje<b>${fmtTok((u.today?.in || 0) + (u.today?.out || 0))}</b></div><div>Turnos<b>${a.turn}</b></div></div>`}` : ''}
     </div>`;
   };
@@ -978,6 +1096,7 @@ async function enviaDoPainel() {
   if (via === 'boss' && quem !== 'boss') { alvo = 'boss'; texto = `${ctx}O usuário quer falar com ${quem} (${nm}): ${txt}\n\nAnalise o pedido e, se fizer sentido, fale com ${quem} usando ../bin/hcp.sh send ${quem} "<mensagem>" — depois me dê um retorno curto.`; }
   const st = document.getElementById('sendSt');
   const r = await fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': S.token || '' }, body: JSON.stringify({ project: PROJECT, agent: alvo, text: texto }) });
+  if (r.status === 409 && r.headers.get('X-Orq') === 'bloqueado') return abrirResposta(alvo, texto);
   if (!r.ok) { const m = await r.text(); if (r.status === 404 && alvo !== 'boss') { if (await confirma(`${nm} está fora do ar`, 'Quer mandar pelo Boss? Ele analisa e fala com ele (ou chama o agente).', false, 'Mandar pelo Boss')) { document.getElementById('scrVia').value = 'boss'; return enviaDoPainel(); } return; } return avisa('Não enviou', m); }
   box.value = ''; st.textContent = alvo === 'boss' && quem !== 'boss' ? `enviado ao Boss — ele vai falar com ${nm}` : `enviado para ${nmOf(alvo)}`;
   if (alvo === 'boss' && quem !== 'boss') { citacao = null; document.getElementById('scrQuote').style.display = 'none'; openScreen('boss', 'chat'); montaVia('boss'); }
@@ -1059,7 +1178,7 @@ document.getElementById('srv').addEventListener('click', () => { srvOpen = !srvO
 function renderAccounts() {
   const el = document.getElementById('accts'); if (!el) return;
   const usadas = new Set(Object.values(S.agents || {}).map((a) => a.conta).filter(Boolean));
-  const html = contasUnicas().filter((a) => a.ids.some((i) => usadas.has(i)) || a.users.some((u) => u.project === PROJECT)).map((a) => `<span class="acct" data-go-uso="1" title="${esc(a.email || a.id)} — clique para ver o uso">${esc(a.email ? a.email.split('@')[0] : a.id)} <i class="mb"><i style="width:${Math.min(100, a.h5 || 0)}%;background:${corUso(a.h5 || 0)}"></i></i> ${a.h5 ?? '–'}%</span>`).join('');
+  const html = contasUnicas().filter((a) => a.ids.some((i) => usadas.has(i)) || a.users.some((u) => u.project === PROJECT)).map((a) => `<span class="acct" data-go-uso="1" title="${esc(a.email || a.id)} — clique para ver o uso">${esc(a.nome || (a.email ? a.email.split('@')[0] : a.id))} <i class="mb"><i style="width:${Math.min(100, a.h5 || 0)}%;background:${corUso(a.h5 || 0)}"></i></i> ${a.h5 ?? '–'}%</span>`).join('');
   if (html !== el.dataset.h) { el.dataset.h = html; el.innerHTML = html; }
 }
 document.getElementById('accts')?.addEventListener('click', () => { subTab = 'uso'; try { localStorage.setItem('estudio.sub', 'uso'); } catch {} document.querySelector('.tabs button[data-tab="panel"]')?.click(); });
@@ -1086,6 +1205,72 @@ function contasUnicas() {
   for (const a of ACCTS) { const k = a.email || a.id; if (!g[k]) g[k] = { ...a, ids: [a.id], users: [...a.users] }; else { g[k].ids.push(a.id); g[k].users.push(...a.users); g[k].tokToday += a.tokToday || 0; if ((a.metersAt || 0) > (g[k].metersAt || 0)) Object.assign(g[k], { h5: a.h5, d7: a.d7, metersAt: a.metersAt }); g[k].reset5 = g[k].reset5 || a.reset5; g[k].reset7 = g[k].reset7 || a.reset7; } }
   return Object.values(g);
 }
+const rotConta = (c) => c.provedor && c.provedor !== 'claude' ? `${c.nome || c.nomeProvedor || c.provedor}` : `${c.nome || 'Claude conta ' + c.n}${c.email ? ' — ' + c.email : ' (sem login)'}`;
+function opcoesConta(contas, atual, soClaude = false) { const lista = [...(contas || [])]; if (atual && !/^\d+$/.test(String(atual)) && !lista.some((c) => c.id === String(atual))) lista.push({ id: String(atual), provedor: String(atual), nomeProvedor: String(atual) + ' (conta não cadastrada — adicione em Painel → Uso)' }); return lista.filter((c) => !soClaude || c.provedor === 'claude').map((c) => { const v = c.provedor === 'claude' ? c.n : c.id; return `<option value="${esc(v)}" ${String(atual) === String(v) ? 'selected' : ''}>${esc(rotConta(c))}</option>`; }).join(''); }
+function modelosDe(contas, v) { const c = (contas || []).find((x) => (x.provedor === 'claude' ? x.n : x.id) === String(v)); return c?.modelos || ['sonnet', 'haiku', 'opus']; }
+async function carregaContasClaude() {
+  const el = document.getElementById('gContasClaude'); if (!el) return;
+  let R0 = { contas: [] }; try { R0 = await fetch('/contas', { cache: 'no-store' }).then((r) => r.json()); } catch { return; }
+  const C = R0.contas || (Array.isArray(R0) ? R0 : []); window.__motoresDisp = R0.disponiveis || [];
+  const emails = C.map((c) => c.email).filter(Boolean), dup = emails.filter((e, i) => emails.indexOf(e) !== i);
+  el.innerHTML = `<h3>Contas e motores de IA <span class="note" style="font-weight:400">quem está logado em cada um e quem usa</span></h3>
+    <table><tr><th>Conta</th><th>Login</th><th>Pasta</th><th>Quem usa</th><th></th></tr>${C.map((c) => `<tr>
+      <td><b>${esc(c.nome || (c.provedor === 'claude' ? `Claude · conta ${c.n}` : c.nomeProvedor || c.id))}</b> <button class="sb" data-cc="renomear" data-id="${esc(c.id)}" data-nome="${esc(c.nome || '')}" title="dar um nome a esta conta" style="padding:1px 6px">✎</button>${c.nome ? `<div class="note" style="margin:0">${esc(c.provedor === 'claude' ? 'Claude · conta ' + c.n : c.nomeProvedor || c.id)}</div>` : ''}${c.instalado === false ? '<div class="note" style="margin:0;color:var(--blocked)">não instalado</div>' : ''}</td>
+      <td>${c.provedor !== 'claude' ? (c.logada ? '<span style="color:#4fd18b">logado ✓</span>' : '<span style="color:var(--blocked)">sem login</span>') : c.logada ? `${esc(c.email)}${dup.includes(c.email) ? ' <span class="bdg bad" title="outra conta está logada no mesmo e-mail">repetida</span>' : ''}${c.org ? `<div class="note" style="margin:0">${esc(c.org)}</div>` : ''}` : '<span style="color:var(--blocked)">sem login</span>'}</td>
+      <td><code>${esc(c.pasta)}</code></td>
+      <td style="max-width:320px">${c.uso.length ? esc([...new Set(c.uso.map((u) => u.projeto))].map((pj) => `${pj}: ${c.uso.filter((u) => u.projeto === pj).length}`).join(' · ')) : '<span class="note">ninguém</span>'}</td>
+      <td style="white-space:nowrap">${c.instalado === false && c.provedor !== 'claude' ? `<button class="sb pri" data-cc="instalar" data-id="${esc(c.id)}">instalar</button>` : `<button class="sb pri" data-cc="login" data-n="${esc(c.id)}">${c.logada ? 'trocar login' : 'entrar'}</button>`}${c.id !== 'conta1' ? ` <button class="sb" data-cc="remover" data-id="${esc(c.id)}">remover</button>` : ''}</td></tr>`).join('')}</table>
+    <div class="gbar" style="margin-top:8px"><button class="sb" data-cc="adicionar">＋ Adicionar conta / motor</button><span class="note" style="margin:0">Para mudar qual conta/modelo um agente usa: abra o agente → <b>ajustar</b> → Instruções.</span></div>`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-cc]'); if (!b) return;
+  const a = b.dataset.cc;
+  if (a === 'login') return abrirLoginConta(b.dataset.n);
+  if (a === 'renomear') {
+    const bg = document.createElement('div'); bg.className = 'mbg';
+    bg.innerHTML = `<div class="mdl frm" role="dialog" aria-modal="true"><h4>Nome da conta</h4><label>Como você quer chamar esta conta</label><input id="rnN" maxlength="30" value="${esc(b.dataset.nome)}" placeholder="ex.: Pessoal, Trabalho, DECEA"><small>Aparece no topo, no painel e na escolha de conta dos agentes.</small><div class="mact"><button class="mc">Cancelar</button><button class="mo">Salvar</button></div></div>`;
+    const nome = await new Promise((res) => { bg.addEventListener('click', (ev) => { if (ev.target === bg || ev.target.classList.contains('mc')) { bg.remove(); res(null); } if (ev.target.classList.contains('mo')) { const v = bg.querySelector('#rnN').value; bg.remove(); res(v); } }); document.body.appendChild(bg); setTimeout(() => bg.querySelector('#rnN').select(), 30); });
+    if (nome === null) return;
+    const r = await post('/contas', { action: 'renomear', id: b.dataset.id, nome }); document.getElementById('sendSt').textContent = r.out || ''; return carregaContasClaude();
+  }
+  if (a === 'medir') { b.disabled = true; b.textContent = 'medindo… (~15 s)'; const r = await post('/contas', { action: 'medir', id: b.dataset.id }).catch((er) => ({ ok: false, out: er.message })); b.disabled = false; b.textContent = 'medir agora'; if (!r.ok) avisa('Não deu para medir', r.out); else document.getElementById('sendSt').textContent = r.out; return; }
+  if (a === 'adicionar') {
+    const disp = window.__motoresDisp || [];
+    const bg = document.createElement('div'); bg.className = 'mbg';
+    bg.innerHTML = `<div class="mdl" role="dialog" aria-modal="true"><h4>Adicionar conta ou motor de IA</h4>
+      <p class="note" style="margin:0 0 8px">Os agentes podem usar outra assinatura do Claude ou outro motor. O <b>Boss</b> é sempre Claude (é ele quem aplica as regras); devs e especialistas podem usar qualquer um.</p>
+      <div style="display:flex;flex-direction:column;gap:6px"><button class="sb" data-mt="claude">Claude — outra assinatura (nova conta)</button>${disp.map((d) => `<button class="sb" data-mt="${esc(d.id)}">${esc(d.nome)}</button>`).join('')}</div>
+      <p class="note" style="margin:10px 0 0">Nos outros motores, o Orquestra passa as <b>mesmas regras do projeto, a lista do que é proibido e as mesmas skills</b> (sincronizadas em <code>.agents/skills</code>, padrão que todos eles leem). Como o bloqueio técnico do Claude Code não vale lá, eles também rodam pedindo aprovação antes de executar comandos — você aprova pela aba Tela do agente.</p>
+      <div class="mact"><button class="mc">Cancelar</button></div></div>`;
+    const esc2 = await new Promise((res) => { bg.addEventListener('click', (ev) => { if (ev.target === bg || ev.target.classList.contains('mc')) { bg.remove(); res(null); } const m = ev.target.closest('[data-mt]'); if (m) { bg.remove(); res(m.dataset.mt); } }); document.body.appendChild(bg); });
+    if (!esc2) return;
+    const r = await post('/contas', { action: 'adicionar', provedor: esc2 }).catch((er) => ({ ok: false, out: er.message }));
+    await avisa(r.ok ? 'Pronto' : 'Não deu', r.out); return carregaContasClaude();
+  }
+  if (a === 'instalar') { b.disabled = true; b.textContent = 'instalando…'; }
+  if (a === 'remover' && !(await confirma('Remover esta conta da lista?', 'A pasta dela não é apagada. Só dá para remover se nenhum agente estiver usando.', true, 'Remover'))) return;
+  const r = await post('/contas', { action: a, id: b.dataset.id }).catch((er) => ({ ok: false, out: er.message }));
+  await avisa(r.ok ? 'Pronto' : 'Não deu', r.out); carregaContasClaude();
+});
+async function abrirLoginConta(n) {
+  try { await termLib(); } catch { return avisa('Erro', 'não consegui carregar o terminal'); }
+  const bg = document.createElement('div'); bg.className = 'mbg';
+  bg.innerHTML = `<div class="mdl wide" role="dialog" aria-modal="true" style="width:min(900px,96vw)"><h4>${/^conta\d+$/.test(n) ? `Entrar na conta ${esc(n.replace('conta', ''))} do Claude` : `Entrar: ${esc(n)}`}</h4>
+    <p class="note" style="margin:0 0 8px">${/^conta\d+$/.test(n) ? `Este é o Claude Code usando a pasta desta conta. Clique em <b>/login</b> e escolha a conta (abre o navegador para confirmar). <b>/status</b> mostra quem está logado. Depois, <code>/exit</code> e feche esta janela.` : 'O login deste motor roda abaixo — siga as instruções (pode abrir o navegador). Ao terminar, feche esta janela.'}</p>
+    <div id="lgBox" style="height:420px;background:#0b0908;border:1px solid var(--line);border-radius:10px;padding:6px"></div>
+    <div class="mact">${/^conta\d+$/.test(n) ? '<button class="sb" data-lg="status">/status</button><button class="sb" data-lg="login">/login</button>' : ''}<button class="mo">Fechar</button></div></div>`;
+  document.body.appendChild(bg);
+  const t = new XT({ fontFamily: 'Menlo, "SF Mono", Monaco, Consolas, monospace', fontSize: 13, cursorBlink: true, theme: { background: '#0b0908', foreground: '#e9e2da', cursor: '#e8875a' } });
+  const f = new window.FitAddon.FitAddon(); t.loadAddon(f); t.open(bg.querySelector('#lgBox')); f.fit();
+  const ws = new WebSocket(`ws://${location.host}/term?w=login&conta=${encodeURIComponent(n)}&p=${encodeURIComponent(PROJECT)}&t=${S.token || ''}&c=${t.cols}&r=${t.rows}`); ws.binaryType = 'arraybuffer';
+  ws.onmessage = (m) => t.write(typeof m.data === 'string' ? m.data : new Uint8Array(m.data));
+  t.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ t: 'i', d })));
+  setTimeout(() => t.focus(), 200);
+  bg.addEventListener('click', (e) => {
+    const lg = e.target.closest('[data-lg]')?.dataset.lg; if (lg && ws.readyState === 1) { ws.send(JSON.stringify({ t: 'i', d: '/' + lg })); setTimeout(() => ws.send(JSON.stringify({ t: 'i', d: '\r' })), 150); t.focus(); return; }
+    if (e.target.classList.contains('mo') || e.target === bg) { try { ws.close(); } catch {} t.dispose(); bg.remove(); setTimeout(carregaContasClaude, 500); }
+  });
+}
 function painelUso() {
   if (!ACCTS.length) return '<div class="note">Sem dados de conta ainda.</div>';
   const unicas = contasUnicas();
@@ -1094,16 +1279,18 @@ function painelUso() {
   return aviso + `<div class="usage">${unicas.map((a) => {
     const meus = a.users.filter((u) => u.project === PROJECT).map((u) => nmA(u.agent));
     const outros = a.users.filter((u) => u.project !== PROJECT).length;
-    const medido = a.metersAt ? `medido às ${hhmm(a.metersAt)}` : 'sem medição ainda (abra uma sessão no Herdr)';
+    const medido = a.metersAt ? `${a.fonte === 'usage' ? 'medido pelo /usage da própria conta' : 'medido pela sessão do Herdr (plugin)'} às ${hhmm(a.metersAt)}` : 'sem medição ainda';
     const linha = (rot, v, reset, quando) => `<div class="um"><div class="ut"><b>${rot}</b><span>${v == null ? '–' : v + '% usado'}</span></div>
       <div class="ub"><i style="width:${Math.min(100, v || 0)}%;background:${corUso(v || 0)}"></i></div>
       <div class="note" style="margin:4px 0 0">${reset ? `renova ${quando} · ${falta(reset)} (estimado)` : 'renovação: sem dados suficientes'}</div></div>`;
-    return `<div class="box uc"><h3>${esc(a.email || a.id)} <span class="note" style="font-weight:400">${esc(a.org || '')} · ${a.ids.join(' + ')}</span></h3>
-      ${linha('Sessão atual (5 horas)', a.h5, a.reset5, 'às ' + hhmm(a.reset5))}
-      ${linha('Semana (7 dias)', a.d7, a.reset7, a.reset7 ? new Date(a.reset7).toLocaleString('pt-BR', { weekday: 'long', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')}
+    const linhaReal = (rot, v, txt) => `<div class="um"><div class="ut"><b>${rot}</b><span>${v == null ? '–' : v + '% usado'}</span></div><div class="ub"><i style="width:${Math.min(100, v || 0)}%;background:${corUso(v || 0)}"></i></div><div class="note" style="margin:4px 0 0">renova ${esc(txt)}</div></div>`;
+    return `<div class="box uc"><h3>${esc(a.nome || a.email || a.id)} <span class="note" style="font-weight:400">${a.nome ? esc(a.email || '') + ' · ' : ''}${esc(a.org || '')} · ${a.ids.join(' + ')}</span> <button class="sb" data-cc="medir" data-id="${esc(a.ids[0])}" style="float:right">medir agora</button></h3>
+      ${a.reset5Txt ? linhaReal('Sessão atual (5 horas)', a.h5, a.reset5Txt) : linha('Sessão atual (5 horas)', a.h5, a.reset5, 'às ' + hhmm(a.reset5))}
+      ${a.reset7Txt ? linhaReal('Semana (7 dias)', a.d7, a.reset7Txt) : ''}${a.reset7Txt ? '' : linha('Semana (7 dias)', a.d7, a.reset7, a.reset7 ? new Date(a.reset7).toLocaleString('pt-BR', { weekday: 'long', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')}
       <div class="ux"><span>Agentes desta sala: <b>${meus.join(', ') || '—'}</b>${outros ? ` · +${outros} em outra sala` : ''}</span><span>Tokens hoje: <b>${fmtTok(a.tokToday)}</b></span></div>
       <div class="note">${medido}</div></div>`;
   }).join('')}</div>
+  <div class="box" id="gContasClaude"><h3>Contas do Claude <span class="note" style="font-weight:400">quem está logado em cada uma e quem usa</span></h3><div class="note">carregando…</div></div>
   <div class="note">Mesma informação do <code>/usage</code> do Claude: % medido pela própria sessão (session-bar). Horários de renovação são estimados pelo histórico de mensagens. Trocou de conta com <code>/login</code>? Aparece aqui em até 30 s e o contexto dos agentes continua.</div>`;
 }
 function painelAgentes() {
@@ -1155,6 +1342,7 @@ function renderPanel() {
   const tabs = [['uso', 'Uso do Claude'], ['agentes', 'Agentes'], ['custos', 'Custos'], ['atividade', 'Atividade']];
   const body = subTab === 'agentes' ? painelAgentes() : subTab === 'custos' ? painelCustos() : subTab === 'atividade' ? painelAtividade() : painelUso();
   el.innerHTML = `<div class="subtabs">${tabs.map(([k, t]) => `<button data-sub="${k}" class="${k === subTab ? 'on' : ''}">${t}</button>`).join('')}</div>${body}`;
+  if (subTab === 'uso' || !['agentes', 'custos', 'atividade'].includes(subTab)) carregaContasClaude();
 }
 document.getElementById('panel').addEventListener('click', (e) => { const b = e.target.closest('[data-sub]'); if (!b) return; subTab = b.dataset.sub; try { localStorage.setItem('estudio.sub', subTab); } catch {} renderPanel(); });
 
@@ -1461,6 +1649,8 @@ function connect() {
   window.bootStep?.('conectando ao servidor…');
   es.addEventListener('init', (m) => { window.bootStep?.('recebendo a equipe…'); const d = JSON.parse(m.data); feed = d.interactions || []; S = d; ROOMS = d.rooms || []; ACCTS = d.accounts || []; renderAll(); renderRooms(); booted = true; window.bootDone?.().then?.(() => { if (window.__lento) toast({ kind: 'servico', from: 'voce', text: window.__lento }); }); });
   es.addEventListener('rooms', (m) => { ROOMS = JSON.parse(m.data); renderRooms(); });
+  es.addEventListener('atualizou', () => mostraAtualizou());
+  es.addEventListener('init', () => setTimeout(checaVersao, 300));
   es.addEventListener('state', (m) => { S = { ...S, ...JSON.parse(m.data) }; renderAll(); if (tab === 'term') termStatus(); });
   es.addEventListener('activity', (m) => onActivity(JSON.parse(m.data)));
   es.addEventListener('accounts', (m) => { ACCTS = JSON.parse(m.data); renderAccounts(); renderSide(); if (tab === 'panel') renderPanel(); });
@@ -1471,3 +1661,117 @@ function connect() {
 resize();
 connect();
 tick();
+
+async function abrirNoHerdr(ag, st) {
+  const r = await post('/agent', { agent: ag, action: 'herdr' }).catch((er) => ({ ok: false, out: er.message }));
+  if (!r.ok) return avisa('Não abriu no Herdr', r.out || 'falhou');
+  if (!r.manual) { st.textContent = r.out || ''; return; }
+  try { await navigator.clipboard.writeText(r.cmd); } catch {}
+  modal({ title: 'Ver este terminal no Herdr', text: `No Herdr, abra um terminal novo e cole (já está copiado):\n\n${r.cmd}\n\nVocê passa a ver e usar o terminal dele ali. Para soltar sem parar o agente: ctrl+\\\n\nDica: rodando só  hc  aparece a lista de todos os terminais para escolher.`, info: true });
+}
+
+// Terminal: Ctrl-C e abrir no app Herdr
+document.getElementById('termCC')?.addEventListener('click', () => { try { if (tws && tws.readyState === 1) tws.send(JSON.stringify({ t: 'i', d: '\x03' })); else avisa('Terminal desconectado', 'Clique em reconectar e tente de novo.'); } catch {} term?.focus(); });
+document.getElementById('termHerdr')?.addEventListener('click', async () => {
+  const alvo = termQual === 'boss' ? 'boss' : 'andar';
+  await abrirNoHerdr(alvo, document.getElementById('termSt'));
+});
+
+// ---------- "precisa de você": faixa no topo, aviso do Mac clicável e janela para responder ----------
+function faixaBloqueio() { document.getElementById('bloqFaixa')?.remove(); return; // a faixa do topo deu lugar ao sino de notificações (cabeçalho)
+}
+function faixaBloqueioAntiga() {
+  let el = document.getElementById('bloqFaixa');
+  const bl = Object.entries(S.agents || {}).filter(([, a]) => a.status === 'blocked').map(([id]) => id);
+  const pq = Object.entries(S.agents || {}).filter(([, a]) => a.status !== 'blocked' && a.pergunta).map(([id]) => id);
+  if (!bl.length && !pq.length) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'bloqFaixa'; document.getElementById('office').appendChild(el); el.addEventListener('click', (e) => { const b = e.target.closest('[data-resp]'); if (b) return abrirResposta(b.dataset.resp); const f = e.target.closest('[data-fala]'); if (f) abrirConversa(f.dataset.fala); }); }
+  const html = (bl.length ? `<b>⚠ ${bl.length === 1 ? esc(nmOf(bl[0])) + ' precisa de você' : bl.length + ' agentes precisam de você'}</b>${bl.map((id) => `<button data-resp="${esc(id)}">${bl.length > 1 ? esc(nmOf(id)) + ' · ' : ''}responder</button>`).join('')}` : '')
+    + (pq.length ? `<b class="fq">❗ ${pq.length === 1 ? esc(nmOf(pq[0])) + ' quer falar com você' : pq.length + ' agentes querem falar com você'}</b>${pq.map((id) => `<button class="fq" data-fala="${esc(id)}">${pq.length > 1 ? esc(nmOf(id)) + ' · ' : ''}abrir conversa</button>`).join('')}` : '');
+  el.classList.toggle('so-pergunta', !bl.length);
+  if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
+}
+function avisaBloqueio(id) {
+  try {
+    if ('Notification' in window && Notification.permission === 'granted' && (document.hidden || !document.hasFocus())) {
+      const n = new Notification(`Orquestra · ${UI.title || ''}`, { body: `${nmOf(id)} precisa de você — clique para responder`, tag: 'bloq-' + PROJECT + '-' + id });
+      n.onclick = () => { try { window.focus(); } catch {} n.close(); abrirResposta(id); };
+    }
+  } catch {}
+}
+async function abrirResposta(id, rascunho = '') {
+  document.querySelector('.mbg.resp')?.remove();
+  const bg = document.createElement('div'); bg.className = 'mbg resp';
+  bg.innerHTML = `<div class="mdl wide frm" role="dialog" aria-modal="true" style="width:min(760px,95vw)"><h4>${esc(nmOf(id))} precisa de você</h4><div class="note">lendo a tela dele…</div></div>`;
+  document.body.appendChild(bg);
+  const fim = () => { bg.classList.add('out'); setTimeout(() => bg.remove(), 150); };
+  let q; try { q = await fetch('/pergunta?' + qs({ p: PROJECT, agent: id }), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : r.text().then((x) => { throw new Error(x); }))); } catch (e) { bg.querySelector('.mdl').innerHTML = `<h4>${esc(nmOf(id))}</h4><p>${esc(e.message)}</p><div class="mact"><button class="mc">Fechar</button></div>`; bg.onclick = (ev) => { if (ev.target === bg || ev.target.classList.contains('mc')) fim(); }; return; }
+  const livre = q.opcoes.some((o) => /type something|digite|outro|other/i.test(o.texto));
+  const ops = q.opcoes.filter((o) => !/type something/i.test(o.texto));
+  bg.querySelector('.mdl').innerHTML = `<h4>${esc(nmOf(id))} precisa de você${q.titulo ? ' — ' + esc(q.titulo) : ''}</h4>
+    ${q.pergunta ? `<p style="margin:0 0 10px;font-size:14px">${esc(q.pergunta)}</p>` : ''}
+    <details ${q.pergunta ? '' : 'open'}><summary class="note" style="cursor:pointer">o que ele estava fazendo (tela)</summary><pre style="background:#0b0908;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:11.5px;white-space:pre-wrap;max-height:30vh;overflow:auto;margin:6px 0">${esc(q.contexto || '')}</pre></details>
+    ${ops.length ? `<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">${ops.map((o) => `<button class="sb" data-op="${o.n}" style="text-align:left;padding:8px 10px;${o.atual ? 'border-color:var(--accent)' : ''}"><b>${o.n}. ${esc(o.texto)}</b>${o.desc ? `<div class="note" style="margin:2px 0 0">${esc(o.desc)}</div>` : ''}</button>`).join('')}</div>` : '<p class="note">Não achei opções na tela — escreva a resposta abaixo (ou abra a aba Tela/Terminal).</p>'}
+    <label>${ops.length ? (livre ? 'Ou escreva a sua resposta' : 'Ou mande um texto') : 'Sua resposta'}</label><textarea id="rpT" rows="3" placeholder="⌘+Enter envia"></textarea>
+    <div class="mact"><button class="sb" data-x="esc" title="Esc na tela dele: cancela a pergunta">Cancelar a pergunta</button><button class="sb" data-x="tela">Ver a tela</button><button class="mc">Fechar</button><button class="mo">Enviar texto</button></div>`;
+  const manda = async (body) => {
+    bg.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    const r = await post('/responder', { agent: id, ...body }).catch((er) => ({ ok: false, out: er.message }));
+    if (!r.ok) { bg.querySelectorAll('button').forEach((b) => (b.disabled = false)); return avisa('Não respondeu', r.out || 'falhou'); }
+    document.getElementById('sendSt').textContent = `${nmOf(id)}: ${r.out}`; fim();
+  };
+  bg.addEventListener('click', (e) => {
+    if (e.target === bg || e.target.classList.contains('mc')) return fim();
+    const op = e.target.closest('[data-op]'); if (op) return manda({ opcao: +op.dataset.op });
+    const x = e.target.closest('[data-x]')?.dataset.x;
+    if (x === 'esc') return manda({ esc: true });
+    if (x === 'tela') { fim(); return openScreen(id, 'tela'); }
+    if (e.target.classList.contains('mo')) { const t = bg.querySelector('#rpT').value.trim(); if (!t) return bg.querySelector('#rpT').focus(); return manda({ texto: t }); }
+  });
+  if (rascunho) { const ta = bg.querySelector('#rpT'); ta.value = rascunho; bg.querySelector('.mdl h4').insertAdjacentHTML('afterend', '<p class="note" style="margin:0 0 8px">Ele está esperando esta resposta antes de qualquer outra mensagem. Sua mensagem ficou na caixa abaixo — escolha uma opção ou envie o texto como resposta.</p>'); }
+  bg.querySelector('#rpT').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); bg.querySelector('.mo').click(); } });
+}
+// pergunta em texto (o agente terminou perguntando algo): abre a conversa com ele e marca como vista
+function abrirConversa(id) {
+  const q = S.agents[id]?.pergunta; openScreen(id, 'chat'); respostasRapidas(id, q);
+  post('/agent', { agent: id, action: 'visto' }).catch(() => {}); setTimeout(() => document.getElementById('scrMsg')?.focus?.(), 200);
+}
+// respostas rápidas acima da caixa de mensagem: as opções que o agente deu, ou autorizar / não autorizar
+function respostasRapidas(id, q) {
+  let el = document.getElementById('scrQuick');
+  if (!q || (!q.opcoes?.length && !q.autoriza)) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'scrQuick'; document.getElementById('scrCompose').before(el); }
+  el.dataset.agent = id;
+  const bts = [...(q.opcoes || []).map((o) => ({ t: `${o.n}. ${o.texto}`, msg: `Opção ${o.n}: ${o.texto}` })), ...(q.autoriza ? [{ t: '✓ Autorizo, pode seguir', msg: 'Autorizo — pode seguir.', cls: 'ok' }, { t: '✕ Não autorizo', msg: 'Não autorizo. Não faça isso; me explique as alternativas.', cls: 'no' }] : [])];
+  el.innerHTML = `<div class="qh">${esc(nmOf(id))} está esperando sua resposta — clique numa opção ou escreva abaixo</div><div class="qb">${bts.map((b, i) => `<button class="sb ${b.cls || ''}" data-qi="${i}" title="${esc(b.msg)}">${esc(b.t)}</button>`).join('')}</div>`;
+  el.onclick = async (e) => {
+    const b = e.target.closest('[data-qi]'); if (!b) return; const m = bts[+b.dataset.qi].msg;
+    el.querySelectorAll('button').forEach((x) => (x.disabled = true));
+    const r = await fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': S.token || '' }, body: JSON.stringify({ project: PROJECT, agent: id, text: m }) });
+    if (r.status === 409 && r.headers.get('X-Orq') === 'bloqueado') { el.remove(); return abrirResposta(id, m); }
+    if (!r.ok) { el.querySelectorAll('button').forEach((x) => (x.disabled = false)); return avisa('Não enviou', await r.text()); }
+    el.remove(); document.getElementById('sendSt').textContent = `enviado para ${nmOf(id)}: ${m}`;
+  };
+}
+function avisaPergunta(id, q) {
+  try {
+    if ('Notification' in window && Notification.permission === 'granted' && (document.hidden || !document.hasFocus())) {
+      const n = new Notification(`Orquestra · ${UI.title || ''}`, { body: `${nmOf(id)} quer falar com você: ${q.trecho.slice(-120)}`, tag: 'perg-' + PROJECT + '-' + id });
+      n.onclick = () => { try { window.focus(); } catch {} n.close(); abrirConversa(id); };
+    }
+  } catch {}
+}
+labelsLayer.addEventListener('click', (e) => { const l = e.target.closest('.label[data-id]'); if (!l) return; const a = S.agents[l.dataset.id]; if (a?.status === 'blocked') return abrirResposta(l.dataset.id); if (a?.pergunta) return abrirConversa(l.dataset.id); });
+
+// ---------- o Orquestra foi atualizado: avisa e oferece recarregar (o servidor se reinicia sozinho quando o código muda) ----------
+let VER_ORQ = null;
+async function checaVersao() { try { const h = await fetch('/health', { cache: 'no-store' }).then((r) => r.json()); const v = h.code + ':' + (h.pub || 0); if (VER_ORQ && v !== VER_ORQ) mostraAtualizou(); if (!VER_ORQ) VER_ORQ = v; } catch {} }
+function mostraAtualizou() {
+  if (document.getElementById('atualizouT')) return;
+  const d = document.createElement('div'); d.id = 'atualizouT';
+  d.innerHTML = '<span>✨ O Orquestra foi atualizado</span><button>Recarregar</button><button class="x" title="depois">✕</button>';
+  d.querySelector('button').onclick = () => location.reload(); d.querySelector('.x').onclick = () => d.remove();
+  document.body.appendChild(d);
+}
+checaVersao();
+window.orqAbrirConversa = (id) => abrirConversa(id);

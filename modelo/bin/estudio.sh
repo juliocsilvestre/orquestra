@@ -20,7 +20,7 @@ if printf '%s' "$rooms" | grep -q "\"id\":\"$PID\"" && [ "${1:-}" != "--restart"
 else
   pids="$(lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true)"
   [ -n "$pids" ] && { kill $pids 2>/dev/null || true; sleep 0.5; }
-  (cd "$OH/server" && ORQ_CONFIG="$CFG" nohup node server.mjs > "$OH/data/server.log" 2>&1 &)
+  (cd "$OH/server" && ORQ_CONFIG="$CFG" env -u HC_TERMINAL_ID nohup node server.mjs > "$OH/data/server.log" 2>&1 < /dev/null &)
   sleep 1
   echo "Orquestra iniciado (porta $PORT)."
 fi

@@ -262,13 +262,15 @@ function openRecep() {
 function closeRecep() { recep.style.display = 'none'; }
 recep.addEventListener('click', (e) => {
   if (e.target.closest('.x')) { closeRecep(); panX = 0; elevT = 30; fitAll(); return; }
+  const ac = e.target.closest('[data-recact]')?.dataset.recact;
+  if (ac) return import('./andar.js').then((m) => (ac === 'novo' ? m.abrirNovoAndar() : m.abrirGerenciar()));
   const b = e.target.closest('[data-go]'); if (b) enter(b.dataset.go);
 });
 function teamDots(r) { return (r.team || []).map((m) => `<i title="${esc(m.id)}" style="background:${m.status ? hexs(m.id === 'boss' ? 0xf2b544 : ST_COLOR[m.status] || 0x9a8e83) : '#3a332d'}"></i>`).join(''); }
 function renderRecep() {
   if (recep.style.display === 'none') return;
   const bl = ROOMS.filter((r) => r.blocked);
-  const html = `<div class="hd"><div class="av">R</div><div><b>Recepção</b><small>${bl.length ? `Atenção: ${bl.map((r) => esc(r.brand)).join(', ')} precisa de você.` : 'Olá! Para qual andar você vai?'}</small></div><button class="x">fechar</button></div>` +
+  const html = `<div class="hd"><div class="av">R</div><div><b>Recepção</b><small>${bl.length ? `Atenção: ${bl.map((r) => esc(r.brand)).join(', ')} precisa de você.` : 'Olá! Para qual andar você vai?'}</small></div><button class="x">fechar</button></div><div style="display:flex;gap:6px;margin:0 0 10px"><button data-recact="novo" style="flex:1;background:transparent;color:var(--accent);border:1px dashed var(--accent);border-radius:10px;padding:8px;cursor:pointer;font:inherit;font-weight:600">＋ Adicionar andar</button><button data-recact="ger" style="background:transparent;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;font:inherit">⚙ Gerenciar prédio</button></div>` +
     [...ROOMS].map((r, i) => ({ r, i })).reverse().map(({ r, i }) => `
     <div class="fl ${r.blocked ? 'blocked' : ''}">
       <div class="t"><span class="dot" style="background:${hexs(roomColor(r))}"></span><span class="n">${esc(r.title)}</span><span class="num">${i + 1}º andar</span><button data-go="${esc(r.id)}">Subir ↑</button></div>
@@ -315,10 +317,10 @@ function renderHeader() {
   document.getElementById('hcDot').className = 'dot ' + (bl ? 'bad' : 'ok');
   document.getElementById('hcTxt').textContent = bl ? `${bl} sala(s) precisam de você` : `${ROOMS.length} salas`;
   const sel = document.getElementById('rooms');
-  const html = `<button data-recep="1">Recepção</button><select id="roomSel"><option value="">Ir para o andar…</option>${[...ROOMS].map((r, i) => ({ r, i })).reverse().map(({ r, i }) => `<option value="${esc(r.id)}">${i + 1}º · ${esc(r.brand)}${r.blocked ? ' (!)' : ''}</option>`).join('')}</select>`;
+  const html = `<button data-recep="1">Recepção</button><select id="roomSel"><option value="">Ir para o andar…</option>${[...ROOMS].map((r, i) => ({ r, i })).reverse().map(({ r, i }) => `<option value="${esc(r.id)}">${i + 1}º · ${esc(r.brand)}${r.blocked ? ' (!)' : ''}</option>`).join('')}<option value="__novo">＋ Adicionar andar…</option><option value="__ger">⚙ Gerenciar prédio…</option></select>`;
   if (html === sel.dataset.h) return; sel.dataset.h = html; sel.innerHTML = html;
   sel.querySelector('[data-recep]').onclick = openRecep;
-  document.getElementById('roomSel').onchange = (e) => e.target.value && enter(e.target.value);
+  document.getElementById('roomSel').onchange = (e) => { const v = e.target.value; if (v === '__novo' || v === '__ger') { e.target.value = ''; return import('./andar.js').then((m) => (v === '__novo' ? m.abrirNovoAndar() : m.abrirGerenciar())); } if (v) enter(v); };
 }
 
 async function renderAccts() {
@@ -327,7 +329,7 @@ async function renderAccts() {
     const A = await fetch('/accounts', { cache: 'no-store' }).then((r) => r.json());
     const hhmm = (t) => (t ? new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '?');
     const bar = (v) => `<i class="mb"><i style="width:${Math.min(100, v || 0)}%;background:${v >= 90 ? 'var(--blocked)' : v >= 70 ? '#f2c14e' : 'var(--done)'}"></i></i>`;
-    el.innerHTML = A.map((a) => `<span class="acct" title="${esc(a.email || a.id)}&#10;5h ${a.h5 ?? '?'}% — renova ~${hhmm(a.reset5)}&#10;7d ${a.d7 ?? '?'}%&#10;agentes: ${a.users.map((u) => u.project + '/' + u.agent).join(', ') || '—'}"><b>${esc(a.email ? a.email.split('@')[0] : a.id)}</b> 5h ${bar(a.h5)} ${a.h5 ?? '–'}%<small>↻${hhmm(a.reset5)}</small> · 7d ${a.d7 ?? '–'}%</span>`).join('');
+    el.innerHTML = A.map((a) => `<span class="acct" title="${esc(a.email || a.id)}&#10;5h ${a.h5 ?? '?'}% — renova ~${hhmm(a.reset5)}&#10;7d ${a.d7 ?? '?'}%&#10;agentes: ${a.users.map((u) => u.project + '/' + u.agent).join(', ') || '—'}"><b>${esc(a.nome || (a.email ? a.email.split('@')[0] : a.id))}</b> 5h ${bar(a.h5)} ${a.h5 ?? '–'}%<small>↻${hhmm(a.reset5)}</small> · 7d ${a.d7 ?? '–'}%</span>`).join('');
   } catch {}
 }
 setInterval(renderAccts, 5000); renderAccts();
@@ -381,3 +383,16 @@ fit(); placeCamera();
 await refresh();
 setInterval(refresh, 2000);
 tick();
+
+// ---------- o Orquestra foi atualizado: avisa e oferece recarregar (o servidor se reinicia sozinho quando o código muda) ----------
+let VER_ORQ = null;
+async function checaVersao() { try { const h = await fetch('/health', { cache: 'no-store' }).then((r) => r.json()); const v = h.code + ':' + (h.pub || 0); if (VER_ORQ && v !== VER_ORQ) mostraAtualizou(); if (!VER_ORQ) VER_ORQ = v; } catch {} }
+function mostraAtualizou() {
+  if (document.getElementById('atualizouT')) return;
+  const d = document.createElement('div'); d.id = 'atualizouT';
+  d.innerHTML = '<span>✨ O Orquestra foi atualizado</span><button>Recarregar</button><button class="x" title="depois">✕</button>';
+  d.querySelector('button').onclick = () => location.reload(); d.querySelector('.x').onclick = () => d.remove();
+  document.body.appendChild(d);
+}
+checaVersao();
+setInterval(checaVersao, 8000);

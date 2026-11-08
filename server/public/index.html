@@ -51,7 +51,24 @@
   .frm label { display: block; margin: 10px 0 4px; font-size: 12.5px; } .frm input, .frm select, .frm textarea { width: 100%; box-sizing: border-box; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font: inherit; font-size: 13px; }
   .frm textarea { font-family: Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45; } .frm .lin { display: flex; gap: 10px; } .frm .lin > div { flex: 1; } .frm small { color: var(--muted); display: block; margin-top: 3px; } .frm .ck { display: flex; gap: 8px; align-items: center; margin-top: 10px; } .frm .ck input { width: auto; }
   .mdl.wide { width: min(720px, 94vw); max-height: 90vh; overflow: auto; }
+  .mdl.infoA { width: min(760px, 94vw); max-height: 88vh; padding: 0; border-top: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .infoA .iaH { display: flex; gap: 14px; align-items: flex-start; padding: 22px 22px 14px; background: linear-gradient(180deg, rgba(232,135,90,.10), transparent); }
+  .infoA .iaIc { width: 46px; height: 46px; flex: none; border-radius: 12px; background: var(--accent); color: #1a120d; font-weight: 800; font-size: 17px; display: grid; place-items: center; letter-spacing: .5px; }
+  .infoA .iaT { flex: 1; min-width: 0; } .infoA .iaK { font-size: 10.5px; letter-spacing: 1.6px; color: var(--muted); font-weight: 600; }
+  .infoA h3 { margin: 3px 0 0; font-size: 21px; line-height: 1.2; } .infoA .iaT p.iaD { margin: 6px 0 0; color: #cfc6bd; font-size: 13.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .infoA .iaX { background: transparent; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; padding: 4px 6px; border-radius: 8px; } .infoA .iaX:hover { background: var(--panel2); color: var(--text); }
+  .infoA .iaMeta { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 22px 14px; border-bottom: 1px solid var(--line); }
+  .infoA .iaChip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12px; max-width: 100%; }
+  .infoA .iaChip code { background: none; padding: 0; color: #cfc6bd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; } .infoA .iaChip small { color: var(--muted); font-size: 10.5px; }
+  .infoA .iaDot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); } .infoA .iaDot.on { background: var(--done); }
+  .infoA .iaBody { flex: 1 1 auto; min-height: 120px; padding: 18px 26px 10px; overflow: auto; font-size: 14.5px; line-height: 1.7; color: #e6ddd4; } .infoA .iaBody > * { max-width: 68ch; }
+  .infoA .iaBody p { margin: 0 0 12px; color: #e6ddd4; font-size: 14.5px; line-height: 1.7; } .infoA .iaBody p.kv b { display: block; font-size: 11px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; } .infoA .iaBody h5 { margin: 22px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 11.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
+  .infoA .iaBody h5:first-child { margin-top: 2px; padding-top: 0; border-top: 0; } .infoA .iaBody ul, .infoA .iaBody ol { margin: 0 0 12px; padding-left: 18px; } .infoA .iaBody li { margin: 6px 0; padding-left: 2px; } .infoA .iaBody li::marker { color: var(--muted); }
+  .infoA .iaBody code { background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; font-size: 12px; } .infoA .iaBody a { color: var(--accent); }
+  .infoA .iaVazio { text-align: center; color: var(--muted); padding: 26px 0; } .infoA .iaVazio small { font-size: 12px; }
+  .infoA .iaF { display: flex; gap: 8px; align-items: center; padding: 12px 22px 16px; border-top: 1px solid var(--line); } .infoA .iaF span { flex: 1; color: var(--muted); font-size: 12px; }
   #novoAg { width: 100%; margin: 0 0 10px; background: transparent; color: var(--accent); border: 1px dashed var(--accent); border-radius: 10px; padding: 8px; cursor: pointer; font: inherit; font-weight: 600; }
+  .motorBox { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; } .motorBox b.t { display: block; margin-bottom: 4px; } .motorBox ul { margin: 4px 0 6px 18px; padding: 0; } .motorBox .sb { margin-top: 4px; }
   .ssAct { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; } .ssAct .note { flex-basis: 100%; margin: 0; }
   .sb { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; } .sb:hover { border-color: var(--accent); } .sb.pri { background: var(--accent); color: #1b1612; border-color: var(--accent); font-weight: 600; } .sb:disabled { opacity: .5; cursor: default; }
   .mem { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; background: #15120f; } .mem summary { cursor: pointer; } .mem pre { white-space: pre-wrap; margin: 8px 0 0; font-size: 12px; color: #cfc6bd; }
@@ -116,13 +133,34 @@
   @keyframes fin { from { opacity: 0; } to { opacity: 1; } }
   .card.off { opacity: .85; border-style: dashed; } .st-off { color: #6f655c; }
   .ab { font: inherit; font-size: 11px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; margin-left: 6px; }
+  .pill.okp { font: inherit; font-size: 11px; cursor: pointer; background: transparent; white-space: nowrap; flex: none; } .pill.okp:hover { background: rgba(79,209,139,.15); } .pill.okp:disabled { opacity: .6; cursor: wait; }
+  .card .top .pill { white-space: nowrap; flex: none; margin-left: auto; }
   .ab.go { border-color: var(--done); color: var(--done); } .ab.stop { border-color: rgba(255,92,92,.5); color: #ff9b9b; } .ab:disabled { opacity: .5; cursor: wait; }
   .card .acts { display: flex; justify-content: flex-end; gap: 4px; margin: -2px 0 6px; }
   .box.warn { border-color: #f2c14e; background: rgba(242,193,78,.08); font-size: 13px; line-height: 1.5; }
   .card { cursor: pointer; } .card.sel { border-color: var(--accent); }
   .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
   .card.blocked { border-color: var(--blocked); box-shadow: 0 0 0 1px var(--blocked) inset; }
-  .card .top { display: flex; align-items: center; gap: 10px; }
+  #atualizouT { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center; background: var(--panel2); border: 1px solid var(--accent); border-radius: 999px; padding: 6px 6px 6px 16px; box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 13px; }
+  #atualizouT button { background: var(--accent); color: #1a120d; border: 0; border-radius: 999px; padding: 6px 14px; font: inherit; font-weight: 700; cursor: pointer; } #atualizouT button.x { background: transparent; color: var(--muted); padding: 6px 8px; }
+  #bloqFaixa { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; gap: 8px; align-items: center; background: #2a1414; border: 1px solid var(--blocked); color: #ffd7d7; border-radius: 12px; padding: 8px 10px 8px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.45); font-size: 13.5px; animation: bloqP 1.6s ease-in-out infinite; }
+  #bloqFaixa b, #bloqFaixa button { white-space: nowrap; } #bloqFaixa b.fq { margin-left: 6px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,.15); } #bloqFaixa.so-pergunta b.fq { margin-left: 0; padding-left: 0; border-left: 0; }
+  #bloqFaixa button { background: var(--blocked); color: #1a0f0f; border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+  @keyframes bloqP { 50% { box-shadow: 0 0 0 4px rgba(239,71,111,.25), 0 6px 24px rgba(0,0,0,.45); } }
+  button.pill.st-blocked { cursor: pointer; font: inherit; font-size: inherit; }
+  button.pill.st-pergunta { cursor: pointer; font: inherit; font-size: inherit; background: #2b2010; color: #ffcf7a; border: 1px solid #f2b544; white-space: nowrap; }
+  .label.pergunta { pointer-events: auto; cursor: pointer; border-color: #f2b544; color: #ffe2a8; background: rgba(43,32,16,.92); animation: pergP 1.4s ease-in-out infinite; }
+  .label.blocked { pointer-events: auto; cursor: pointer; }
+  #scrQuick { border-top: 1px solid var(--line); padding: 10px 12px; background: #1f1810; }
+  #scrQuick .qh { font-size: 12px; color: #ffe2a8; margin-bottom: 8px; } #scrQuick .qb { display: flex; flex-wrap: wrap; gap: 6px; }
+  #scrQuick .sb { text-align: left; max-width: 100%; white-space: normal; } #scrQuick .sb.ok { border-color: var(--done); color: var(--done); } #scrQuick .sb.no { border-color: var(--blocked); color: var(--blocked); }
+  .label .excl.red { background: var(--blocked); color: #fff; }
+  .label .excl { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 5px; border-radius: 50%; background: #f2b544; color: #1a120d; font-weight: 900; font-size: 11px; }
+  @keyframes pergP { 50% { transform: translate(-50%, calc(-100% - 4px)); } }
+  #bloqFaixa.so-pergunta { background: #2b2010; border-color: #f2b544; color: #ffe2a8; animation: none; }
+  #bloqFaixa button.fq { background: #f2b544; }
+  #bloqFaixa b.fq { color: #ffe2a8; }
+  .card .top { display: flex; align-items: center; gap: 10px; } .card .top .tt, .card .top > div:not(.sw) { flex: 1 1 auto; min-width: 0; } .card .top .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .card .top > button, .card .top > span { flex: none; }
   .sw { width: 26px; height: 26px; border-radius: 7px; flex: none; }
   .card .nm { font-weight: 600; font-size: 14px; }
   .card .sub { color: var(--muted); font-size: 12px; }
@@ -194,11 +232,11 @@
 </header>
 <main>
   <div id="office"><div id="empty">Nenhum Boss rodando no Herdr. Rode <code>../bin/boss.sh</code> num terminal do Herdr.</div><div id="flow"></div><div id="srvPanel"></div><div id="toasts"></div><div id="feed"></div>
-    <div id="screen"><div class="bar"><b id="scrTitle"></b><span class="vt"><button data-vt="chat" class="on">Conversa</button><button data-vt="tela">Tela</button><button data-vt="sess">Sessões</button><button data-vt="skills">Skills</button><button data-vt="instr">Instruções</button></span><span class="note">ao vivo · aprovações no Herdr</span><button id="scrClose">fechar</button></div><div id="scrChat"></div><pre id="scrText" style="display:none">…</pre><div id="scrSess" style="display:none"></div><div id="scrSkills" style="display:none"></div><div id="scrInstr" style="display:none"></div><div id="scrQuote" style="display:none"></div><div id="scrCompose"><select id="scrVia"></select><textarea id="scrMsg" rows="2" placeholder="Escreva… (⌘+Enter envia)"></textarea><button id="scrSend">Enviar</button></div></div>
+    <div id="screen"><div class="bar"><b id="scrTitle"></b><span class="vt"><button data-vt="chat" class="on">Conversa</button><button data-vt="tela">Tela</button><button data-vt="sess">Sessões</button><button data-vt="skills">Skills</button><button data-vt="instr">Instruções</button></span><span class="note">ao vivo</span><button id="scrClose">fechar</button></div><div id="scrChat"></div><pre id="scrText" style="display:none">…</pre><div id="scrSess" style="display:none"></div><div id="scrSkills" style="display:none"></div><div id="scrInstr" style="display:none"></div><div id="scrQuote" style="display:none"></div><div id="scrCompose"><select id="scrVia"></select><textarea id="scrMsg" rows="2" placeholder="Escreva… (⌘+Enter envia)"></textarea><button id="scrSend">Enviar</button></div></div>
   </div>
   <div id="panel"></div>
   <div id="git"><div id="gitList"></div><div id="gitDet"><div class="note" style="padding:20px">Escolha um repositório.</div></div></div>
-  <div id="term"><div class="tbar"><span class="vt"><button data-tw="boss" class="on">Boss</button><button data-tw="andar">Terminal do andar</button></span><span id="termSt" class="note"></span><button id="termBoss" class="sb pri" style="display:none">▶ Iniciar Boss</button><button id="termRe" class="sb">reconectar</button></div><div id="termBox"></div></div>
+  <div id="term"><div class="tbar"><span class="vt"><button data-tw="boss" class="on">Boss</button><button data-tw="andar">Terminal do andar</button></span><span id="termSt" class="note"></span><button id="termBoss" class="sb pri" style="display:none">▶ Iniciar Boss</button><button id="termCC" class="sb" title="Manda Ctrl-C para este terminal (para o que estiver rodando)">Ctrl-C</button><button id="termHerdr" class="sb" title="Abre este terminal no app Herdr (aba no workspace deste andar)">abrir no Herdr</button><button id="termRe" class="sb">reconectar</button></div><div id="termBox"></div></div>
   <aside id="side">
     <div id="cards"></div>
     <div id="composer">
@@ -231,6 +269,7 @@
 </script>
 <script type="module">
   const p = new URLSearchParams(location.search).get('p');
+  import('./sino.js').catch((e) => console.error('sino', e));
   import(p ? './app.js' : './predio.js')
     .then(() => { if (!window.__esperaInit) window.bootDone(); })
     .catch((e) => mostraErro(String(e && (e.stack || e.message) || e)));
