@@ -3,3 +3,5 @@ dist/
 server/config.json
 server/data/
 .DS_Store
+__pycache__/
+*.pyc

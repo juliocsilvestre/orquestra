@@ -37,6 +37,8 @@
       "Bash(hc interrupt:*)",
       "Edit(**/src/**)",
       "Edit(**/app/**)",
+      "Write(**/src/**)",
+      "Write(**/app/**)",
       "Bash(git commit:*)",
       "Bash(git add:*)"
     ],
