@@ -20,7 +20,18 @@ const perf = { started: Date.now(), firstScanMs: null }; // tempos (ms) de cada 
 const tick = () => new Promise((r) => setImmediate(r)); // devolve a vez para o servidor responder enquanto lê arquivos grandes
 const timed = (nome, ms) => { perf[nome] = ms; perf[nome + 'Max'] = Math.max(perf[nome + 'Max'] || 0, ms); if (ms > 800) console.log(`[lento] ${nome}: ${ms} ms`); };
 const CODE_MTIME = (() => { try { return Math.floor(fs.statSync(fileURLToPath(import.meta.url)).mtimeMs); } catch { return 0; } })();
-const ACCOUNTS = cfg.accounts.map((a) => ({ ...a, dir: exp(a.dir) }));
+const ACCOUNTS = cfg.accounts.map((a) => ({ ...a, provedor: a.provedor || 'claude', dir: exp(a.dir) }));
+// outros motores de IA que um agente pode usar (além das contas do Claude)
+const PROVEDORES = {
+  claude: { nome: 'Claude (Anthropic)', cli: 'claude' },
+  codex: { nome: 'Codex (OpenAI / ChatGPT)', cli: 'codex', home: '~/.codex', login: 'codex login', instalar: { darwin: 'brew install codex', outro: 'npm install -g @openai/codex' }, logado: (d) => fs.existsSync(path.join(d, 'auth.json')), modelos: ['gpt-5-codex', 'gpt-5', 'gpt-5-mini'] },
+  gemini: { nome: 'Gemini (Google)', cli: 'gemini', home: '~/.gemini', login: 'gemini', instalar: { darwin: 'brew install gemini-cli', outro: 'npm install -g @google/gemini-cli' }, logado: (d) => fs.existsSync(path.join(d, 'oauth_creds.json')) || !!process.env.GEMINI_API_KEY, modelos: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+  cursor: { nome: 'Cursor', cli: 'agent', home: '~/.cursor', login: 'agent login', instalar: { darwin: 'curl https://cursor.com/install -fsS | bash', outro: 'curl https://cursor.com/install -fsS | bash' }, logado: (d) => { try { return /"(accessToken|authInfo|email)"/.test(fs.readFileSync(path.join(d, 'cli-config.json'), 'utf8')); } catch { return false; } }, modelos: ['auto', 'gpt-5', 'sonnet-4.5'] },
+  copilot: { nome: 'GitHub Copilot', cli: 'copilot', home: '~/.copilot', login: 'copilot login', instalar: { darwin: 'npm install -g @github/copilot', outro: 'npm install -g @github/copilot' }, logado: (d) => { try { return /token|logged|user/i.test(fs.readFileSync(path.join(d, 'config.json'), 'utf8')); } catch { return false; } }, modelos: ['auto', 'claude-sonnet-4.5', 'gpt-5'] },
+};
+// o servidor não pertence a nenhum terminal do Herdr (se foi iniciado de dentro de um, o hc acharia que é aquele terminal)
+delete process.env.HC_TERMINAL_ID;
+const contaKey = (c) => (/^\d+$/.test(String(c)) ? 'conta' + c : String(c)); // equipe.conf: "2" = conta2 do Claude; "codex" = conta do Codex
 const NOT_AGENTS = new Set(['estudio', 'bin', 'relatorios']);
 
 // ---------- projetos (salas) ----------
@@ -131,17 +142,24 @@ function apply(p, snap) {
     let id = agentFromCwd(p, cwd) || agentFromCwd(p, t.cwd);
     if (!id && nm && (nm.startsWith('dev-') || p.special.has(nm))) id = nm;
     if (!id || (id === 'boss' && agents.boss)) continue;
+    const fgNome = path.basename(String(fg.name || (fg.argv || [])[0] || ''));
+    if (id === 'boss' && nm === 'terminal' && /^-?(zsh|bash|sh|fish|dash)$/.test(fgNome) && !/boss\.sh/.test((fg.argv || []).join(' '))) continue; // só o shell do andar parado na pasta do Boss: o Boss não está no ar
     const argv = [...(t.argv || []), ...(fg.argv || [])].join(' ');
     let conta = null;
     for (const a of ACCOUNTS) if (a.dir !== exp('~/.claude') && argv.includes('CLAUDE_CONFIG_DIR=' + a.dir)) conta = a.id;
+    const mt = argv.match(/motor\.sh\s+(\S+)(?:\s+(\S+))?/); if (mt) conta = mt[1];
     agents[id] = {
-      id, address: t.address, status: (t.status && t.status.state) || 'idle', title: t.title || '', turn: t.turn || 0,
+      id, address: t.address, fg: fgNome, status: (t.status && t.status.state) || (id === 'boss' && /boss\.sh/.test((fg.argv || []).join(' ')) ? 'starting' : 'idle'), title: t.title || '', turn: t.turn || 0,
       parent: t.parent, conta: conta || p.usage[id]?.conta || null, ctx: (() => { try { const j = JSON.parse(fs.readFileSync(path.join(SB_DIR, t.address + '.json'), 'utf8')); return (j.meters || []).find((m) => m.label === 'ctx')?.percent ?? null; } catch { return null; } })(), model: (() => { try { return JSON.parse(fs.readFileSync(path.join(SB_DIR, t.address + '.json'), 'utf8')).model || null; } catch { return null; } })(),
     };
+    if (agents[id].status === 'done' && p.ack?.[id]) agents[id].status = 'idle'; // você já deu ok
+    if (['idle', 'done'].includes(agents[id].status)) { const q = perguntaPendente(p, id); if (q) agents[id].pergunta = q; }
+    else if (agents[id].status !== 'done' && p.ack?.[id]) delete p.ack[id];
     byAddr[t.address] = id;
   }
   p.agents = agents; p.services = services; p.byAddr = byAddr; p.hcOk = true; p.floorTerm = floorTerm;
   emit(p);
+  herdrSincroniza(p);
 }
 
 // ---------- interações (hooks) ----------
@@ -228,6 +246,20 @@ function chatItems(l, full = false) {
     }
   }
   return out;
+}
+// o agente terminou a vez dele perguntando algo para você? (texto, não a tela de aprovação) — vira o "!" no boneco
+const PERGUNTA_RE = /((me |você )?autoriza\b|sua autorização|(você )?aprova\?|escolh(a|er)|qual (das|delas|opção)|op(ç|c)(ão|ões|ao|oes)\b|me avisa|confirma\??\s*$|ok\?|\?\s*(\*\*)?\s*$|preciso (de|que) (você|vc|sua|seu)|aguardo (sua|seu|você|o seu|a sua)|me (diga|confirme|avise|passe)|confirm[ae] (se|para|o|a)\b|qual (você )?prefere|você prefere|quer que eu|posso (seguir|continuar|prosseguir|subir|fazer)|devo (seguir|continuar|prosseguir)|precisa da sua|sua (decisão|aprovação|confirmação|resposta))/im;
+function perguntaPendente(p, id) {
+  const arr = p.chat[id] || []; let ult = null;
+  for (let i = arr.length - 1; i >= 0; i--) { const x = arr[i]; if (x.kind !== 'text') continue; ult = x; break; }
+  if (!ult || ult.role !== 'agent') return null;
+  const fim = ult.text.slice(-1200);
+  const opcoes = []; for (const l of fim.split('\n')) { const m = l.match(/^\s*(?:[-*]\s*)?\**\s*(?:op(?:ç|c)(?:ão|ao)\s*)?(\d{1,2}|[A-Da-d])[.):]\**\s+\**(.{2,140}?)\**\s*$/i); if (m) opcoes.push({ n: m[1], texto: m[2].replace(/\*\*/g, '').trim() }); }
+  const temOps = opcoes.length >= 2 && /(\?|escolh|prefere|op(ç|c)(ão|ões)|qual)/i.test(fim);
+  if (!temOps && !PERGUNTA_RE.test(fim.slice(-600))) return null;
+  if ((p.visto?.[id] || 0) >= ult.ts) return null;
+  const autoriza = /(autoriz|aprov|posso (seguir|subir|fazer|fazer o|dar o|rodar)|pode(mos)? (seguir|subir)|liberad|seu ok|ok para|confirma)/i.test(fim.slice(-500));
+  return { ts: ult.ts, trecho: ult.text.replace(/\s+/g, ' ').slice(-220), opcoes: temOps ? opcoes.slice(0, 8) : [], autoriza };
 }
 function addChat(p, id, it) {
   const arr = (p.chat[id] ||= []);
@@ -366,7 +398,7 @@ const SB_DIR = path.join(HOME, '.local', 'state', 'herdr-session-bar');
 const acctInfo = {};           // id -> {email, name, org}
 const acctTs = {};             // id -> timestamps (ms) de respostas, últimos 8 dias
 function readAccounts() {
-  for (const a of ACCOUNTS) {
+  for (const a of ACCOUNTS.filter((x) => x.provedor === 'claude')) {
     const f = a.dir === exp('~/.claude') ? path.join(HOME, '.claude.json') : path.join(a.dir, '.claude.json');
     try { const o = JSON.parse(fs.readFileSync(f, 'utf8')).oauthAccount || {}; acctInfo[a.id] = { email: o.emailAddress || '', name: o.displayName || '', org: o.organizationName || '' }; } catch { acctInfo[a.id] = acctInfo[a.id] || { email: '', name: '', org: '' }; }
   }
@@ -377,9 +409,52 @@ function windowStart(ts, hours) {
   return start;
 }
 let acctSig = '';
+// uso real de cada conta: abre o Claude daquela conta num terminal do Herdr, roda /usage, lê a tela e fecha.
+// (não lê token nenhum — é a mesma tela que você veria digitando /usage)
+const usoReal = {}; let medindo = new Set();
+const MEDIDOR = path.join(path.dirname(CFG_FILE), 'medidor');
+function confiaPasta(cfgDir, dir) {
+  const cj = cfgDir === path.join(HOME, '.claude') ? path.join(HOME, '.claude.json') : path.join(cfgDir, '.claude.json');
+  const j = lerJson(cj, null); if (!j) return; j.projects ||= {}; const k = fs.realpathSync(dir);
+  if (j.projects[k]?.hasTrustDialogAccepted) return; j.projects[k] = { ...(j.projects[k] || {}), hasTrustDialogAccepted: true };
+  const tmp = cj + '.orq.tmp'; fs.writeFileSync(tmp, JSON.stringify(j, null, 2)); fs.renameSync(tmp, cj);
+}
+// outros motores também perguntam se a pasta é confiável na 1ª vez: registra antes (cada um no seu arquivo de config)
+function confiaMotor(motor, dir) {
+  const k = fs.realpathSync(dir);
+  if (motor === 'codex') { const f = path.join(HOME, '.codex', 'config.toml'); let t = ''; try { t = fs.readFileSync(f, 'utf8'); } catch {} if (!t.includes(`[projects."${k}"]`)) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, `\n[projects."${k}"]\ntrust_level = "trusted"\n`); } }
+  else if (motor === 'gemini') { const f = path.join(HOME, '.gemini', 'trustedFolders.json'); const j = lerJson(f, {}) || {}; if (j[k] !== 'TRUST_FOLDER') { j[k] = 'TRUST_FOLDER'; fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(j, null, 2)); } }
+  else if (motor === 'copilot') { const f = path.join(HOME, '.copilot', 'config.json'); const j = lerJson(f, {}) || {}; j.trusted_folders = [...new Set([...(j.trusted_folders || []), k])]; fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(j, null, 2)); }
+}
+function parseUsage(t) {
+  t = t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+  const bloco = (re) => { const i = t.search(re); if (i < 0) return null; const s = t.slice(i, i + 400); const pc = s.match(/(\d{1,3})\s*%\s*used/i); const rs = s.match(/Resets?\s+([^\n│]+)/i); return { pct: pc ? +pc[1] : null, reset: rs ? rs[1].replace(/\s+/g, ' ').trim() : null }; };
+  const h5 = bloco(/Current session/i), d7 = bloco(/Current week \(all models\)|Current week/i);
+  return h5 || d7 ? { h5: h5?.pct ?? null, reset5Txt: h5?.reset || null, d7: d7?.pct ?? null, reset7Txt: d7?.reset || null } : null;
+}
+async function medirUso(acc) {
+  if (acc.provedor !== 'claude' || medindo.has(acc.id)) return usoReal[acc.id] || null;
+  medindo.add(acc.id); const nome = 'orquestra-uso-' + acc.id;
+  try {
+    fs.mkdirSync(MEDIDOR, { recursive: true }); try { confiaPasta(acc.dir, MEDIDOR); } catch {}
+    const env = acc.dir === path.join(HOME, '.claude') ? '' : `CLAUDE_CONFIG_DIR=${shq(acc.dir)} `;
+    const r = await hcRun(['run', '--bg', '--no-notify', '--no-parent', '--name', nome, '--cwd', MEDIDOR, '--', '/bin/sh', '-c', `${env}exec claude`]);
+    if (!r.ok) return null;
+    let addr = null; for (let i = 0; i < 15 && !addr; i++) { await sleep(400); const l = await hcRun(['ls', '--json']); try { addr = (JSON.parse(l.out).terminals || []).find((x) => x.name === nome && x.state === 'live')?.address; } catch {} }
+    if (!addr) return null;
+    let pronto = false; for (let i = 0; i < 25 && !pronto; i++) { await sleep(600); const t = (await hcRun(['read', addr, '--lines', '40'])).out; pronto = /for shortcuts|\? for|>\s*$|Try "|context left/m.test(t); if (/Select login method|Welcome to Claude Code|Log in/i.test(t)) break; }
+    await hcRun(['send', addr, '/usage']);
+    let dados = null; for (let i = 0; i < 12 && !dados?.d7 && dados?.d7 !== 0; i++) { await sleep(700); dados = parseUsage((await hcRun(['read', addr, '--lines', '60'])).out); }
+    if (dados) usoReal[acc.id] = { ...dados, at: Date.now() };
+    return usoReal[acc.id] || null;
+  } finally { await hcRun(['kill', nome]); medindo.delete(acc.id); }
+}
+async function medirTodas() { for (const a of ACCOUNTS.filter((x) => x.provedor === 'claude')) { try { await medirUso(a); } catch {} } emitAccounts(); }
+setTimeout(medirTodas, 20000); setInterval(medirTodas, 15 * 60e3);
+
 function accounts() {
   const now = Date.now();
-  return ACCOUNTS.map((a) => {
+  return ACCOUNTS.filter((a) => a.provedor === 'claude').map((a) => {
     const users = [], meters = {}; let at = 0;
     for (const p of projects) for (const ag of Object.values(p.agents)) {
       if ((ag.conta || 'conta1') !== a.id) continue;
@@ -391,7 +466,8 @@ function accounts() {
     const s7 = windowStart(ts, 168), reset7 = s7 && s7 + 168 * 3600e3 > now ? s7 + 168 * 3600e3 : null;
     let tokToday = 0, costToday = 0;
     for (const p of projects) for (const u of Object.values(p.usage)) if (u.conta === a.id) { tokToday += (u.today?.in || 0) + (u.today?.out || 0); costToday += u.today?.cost || 0; }
-    return { id: a.id, ...(acctInfo[a.id] || {}), users, h5: meters['5h'] ?? null, d7: meters['7d'] ?? null, metersAt: at || null, reset5, reset7, tokToday, costToday };
+    const real = usoReal[a.id]; // a medição pelo /usage da própria conta vale mais que a do plugin
+    return { id: a.id, nome: a.nome || '', ...(acctInfo[a.id] || {}), users, h5: real ? real.h5 : meters['5h'] ?? null, d7: real ? real.d7 : meters['7d'] ?? null, metersAt: real ? real.at : at || null, fonte: real ? 'usage' : at ? 'plugin' : null, reset5Txt: real?.reset5Txt || null, reset7Txt: real?.reset7Txt || null, reset5, reset7, tokToday, costToday };
   });
 }
 function emitAccounts() { const a = accounts(); const s = JSON.stringify(a); if (s !== acctSig) { acctSig = s; broadcastAll('accounts', a); } }
@@ -460,17 +536,64 @@ async function scanPortsCore() {
 }
 
 // ---------- subir / parar serviços ----------
+// nome do terminal no Herdr: "<andar>-<agente>"; o hc aceita até 32 caracteres — se passar, encurta com um código fixo no fim (igual ao tn() do _lib.sh)
+function tnHc(p, x) {
+  const n = p.id + '-' + x; if (n.length <= 32) return n;
+  let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 1000003;
+  return n.slice(0, 26) + '-' + String(h % 100000).padStart(5, '0');
+}
 const hcRun = (args, timeout = 20000) => new Promise((ok) => execFile(HC, args, { timeout }, (err, o, se) => ok({ ok: !err, out: String(o || se || (err && err.message) || '') })));
+// ---------- Herdr app: cada andar vira um workspace visível (abas "andar" + uma por agente, ligadas com hc attach) ----------
+// Os terminais do Orquestra vivem no herdr-core (hc) e não aparecem sozinhos no app; aqui cada um ganha uma aba que o "assiste".
+// Na aba dá para usar normalmente; ctrl+\ solta (o terminal continua rodando).
+const HERDR = process.env.HERDR_BIN || 'herdr';
+let herdrOk = null, herdrVisto = 0;
+const herdrRun = (args, timeout = 10000) => new Promise((ok) => execFile(HERDR, args, { timeout }, (err, o, se) => { let j = null; try { j = JSON.parse(o); } catch {} ok({ ok: !err, j, out: String(o || se || (err && err.message) || '') }); }));
+const mostrarNoHerdr = () => { try { return JSON.parse(fs.readFileSync(CFG_FILE, 'utf8')).mostrarNoHerdr !== false; } catch { return true; } };
+async function herdrDisponivel() { if (herdrOk === null || Date.now() - herdrVisto > 300000) { herdrOk = (await herdrRun(['workspace', 'list'])).ok; herdrVisto = Date.now(); } return herdrOk; } // o app pode abrir/fechar: reconfere a cada 5 min
+const herdrArq = (p) => path.join(p.orq, 'estudio', 'herdr.json');
+function herdrEstado(p) { try { return JSON.parse(fs.readFileSync(herdrArq(p), 'utf8')); } catch { return { tabs: {} }; } }
+const pega = (o, ...ks) => ks.reduce((a, k) => (a == null ? a : a[k]), o);
+async function herdrMostrar(p, alvo, addr, rotulo, focar = false) {
+  if (!(await herdrDisponivel())) return { ok: false, out: 'não achei o app Herdr (comando herdr) neste computador' };
+  const st = herdrEstado(p); st.tabs ||= {};
+  const ws = await herdrRun(['workspace', 'list']);
+  if (!st.workspace || !ws.out.includes(st.workspace)) {
+    const r = await herdrRun(['workspace', 'create', '--cwd', p.root, '--label', 'Orquestra · ' + (p.ui?.title || p.id), '--no-focus']);
+    const w = pega(r.j, 'result', 'workspace', 'workspace_id'); if (!w) return { ok: false, out: 'o Herdr não criou o workspace: ' + r.out.slice(0, 200) };
+    st.workspace = w; st.tabs = {}; st.raiz = { tab: pega(r.j, 'result', 'tab', 'tab_id'), pane: pega(r.j, 'result', 'root_pane', 'pane_id') };
+  }
+  let tb = st.tabs[alvo];
+  if (tb) { const l = await herdrRun(['tab', 'list', '--workspace', st.workspace]); if (!l.out.includes(tb.tab)) tb = null; }
+  if (!tb) {
+    if (st.raiz?.pane) { tb = st.raiz; delete st.raiz; await herdrRun(['tab', 'rename', tb.tab, rotulo]); } // a 1ª aba do workspace
+    else { const r = await herdrRun(['tab', 'create', '--workspace', st.workspace, '--cwd', p.root, '--label', rotulo, '--no-focus']); const tab = pega(r.j, 'result', 'tab', 'tab_id'), pane = pega(r.j, 'result', 'root_pane', 'pane_id'); if (!pane) return { ok: false, out: 'o Herdr não criou a aba: ' + r.out.slice(0, 200) }; tb = { tab, pane }; }
+    st.tabs[alvo] = tb;
+  }
+  if (tb.addr !== addr) { await herdrRun(['pane', 'run', tb.pane, `hc attach ${addr}`]); tb.addr = addr; }
+  try { fs.writeFileSync(herdrArq(p), JSON.stringify(st, null, 2)); } catch {}
+  if (focar) { await herdrRun(['workspace', 'focus', st.workspace]); await herdrRun(['tab', 'focus', tb.tab]); }
+  return { ok: true, out: focar ? `${rotulo} aberto no Herdr (workspace "Orquestra · ${p.ui?.title || p.id}")` : 'ok' };
+}
+const rotuloHerdr = (p, id) => (id === 'andar' ? 'andar · Boss' : id === 'boss' ? 'Boss' : p.ui?.special?.[id]?.title || id);
+function herdrSincroniza(p) { // chamado a cada leitura do hc: garante uma aba para o terminal do andar e para cada agente no ar
+  if ((herdrOk === false && Date.now() - herdrVisto < 300000) || (p.herdrPausa || 0) > Date.now() || !mostrarNoHerdr()) return;
+  const alvos = {}; if (p.floorTerm) alvos.andar = p.floorTerm;
+  for (const [id, a] of Object.entries(p.agents || {})) if (a.address !== p.floorTerm) alvos[id] = a.address;
+  const sig = JSON.stringify(alvos); if (sig === p.herdrSig || p.herdrOcupado) return;
+  p.herdrOcupado = true;
+  (async () => { try { for (const [id, addr] of Object.entries(alvos)) { const r = await herdrMostrar(p, id, addr, rotuloHerdr(p, id)); if (!r.ok) { p.herdrPausa = Date.now() + 300000; if (herdrOk !== false) console.log('[herdr]', r.out); return; } } p.herdrSig = sig; } catch (e) { p.herdrPausa = Date.now() + 300000; } finally { p.herdrOcupado = false; } })();
+}
 const sh = (cmd, cwd, timeout = 120000) => new Promise((ok) => execFile('/bin/zsh', ['-lc', cmd], { cwd, timeout, maxBuffer: 4e6 }, (err, o, se) => ok({ ok: !err, out: String(o || '') + String(se || '') })));
 async function svcStart(p, d) {
   if (p.services[d.short]?.live) return { ok: true, out: d.name + ' já está rodando' };
-  const r = await hcRun(['run', '--bg', '--no-notify', '--no-parent', '--label', 'orq.projeto=' + p.id, '--name', p.id + '-' + d.name, '--cwd', path.join(p.root, d.pasta), '--', '/bin/zsh', '-lc', d.cmd]);
+  const r = await hcRun(['run', '--bg', '--no-notify', '--no-parent', '--label', 'orq.projeto=' + p.id, '--name', tnHc(p, d.name), '--cwd', path.join(p.root, d.pasta), '--', '/bin/zsh', '-lc', d.cmd]);
   return { ok: r.ok, out: r.ok ? d.name + ' subindo' : r.out };
 }
 async function svcStop(p, d) {
   const outs = [];
   if (d.stop) { const r = await sh(d.stop, path.join(p.root, d.pasta)); outs.push((r.ok ? '' : 'falha ao parar: ') + r.out.slice(-300)); }
-  if (p.services[d.short]?.live) { await hcRun(['interrupt', p.id + '-' + d.name]); await new Promise((r) => setTimeout(r, 1500)); await hcRun(['kill', p.id + '-' + d.name]); }
+  if (p.services[d.short]?.live) { await hcRun(['interrupt', tnHc(p, d.name)]); await new Promise((r) => setTimeout(r, 1500)); await hcRun(['kill', tnHc(p, d.name)]); }
   return { ok: true, out: d.name + ' parado' + (outs.length ? ' · ' + outs.join(' ') : '') };
 }
 function logEvent(p, e) { try { fs.appendFileSync(p.eventsFile, JSON.stringify({ ts: Date.now(), ...e }) + '\n'); } catch {} }
@@ -512,6 +635,46 @@ except Exception: pass
 `;
 const SHELL = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
 const shq = (x) => "'" + String(x).replace(/'/g, "'\\''") + "'";
+// terminal para entrar (/login) numa conta do Claude: roda o claude com a pasta de config daquela conta
+async function ensureLoginTerm(id) {
+  const acc = ACCOUNTS.find((a) => a.id === id); if (!acc) throw new Error('conta não encontrada');
+  const n = id.replace(/^conta/, ''), nome = 'orquestra-login-' + id;
+  const achar = async () => { const r = await hcRun(['ls', '--json']); try { return (JSON.parse(r.out).terminals || []).find((t) => t.name === nome && t.state === 'live')?.address || null; } catch { return null; } };
+  let a = await achar(); if (a) return a;
+  let cmd;
+  if (acc.provedor === 'claude') {
+    const dir = contaDir(null, n), env = n === '1' && dir === path.join(HOME, '.claude') ? '' : `CLAUDE_CONFIG_DIR=${shq(dir)} `;
+    cmd = `echo; echo "  Conta ${n} do Claude (${dir.replace(HOME, '~')})"; echo "  Dentro do Claude: /login para entrar (ou trocar de conta), /status para ver qual está logada, /exit para sair."; echo; ${env}exec claude`;
+  } else {
+    const P = PROVEDORES[acc.provedor];
+    cmd = `echo; echo "  ${P.nome}: entrando com '${P.login}'. Siga as instruções (pode abrir o navegador). Quando terminar, feche esta janela."; echo; exec $SHELL -lc ${shq(P.login + '; echo; echo "(pode fechar esta janela)"; exec $SHELL -l')}`;
+  }
+  const r = await hcRun(['run', '--bg', '--no-notify', '--no-parent', '--name', nome, '--cwd', HOME, '--', '/bin/sh', '-c', cmd]);
+  if (!r.ok) throw new Error('não consegui abrir o terminal no Herdr: ' + r.out.slice(0, 200));
+  for (let i = 0; i < 15 && !(a = await achar()); i++) await sleep(400);
+  if (!a) throw new Error('o terminal de login não apareceu no Herdr'); return a;
+}
+function salvaContas() { const c = lerJson(CFG_FILE, {}); c.accounts = ACCOUNTS.map((a) => ({ id: a.id, ...(a.nome ? { nome: a.nome } : {}), ...(a.provedor !== 'claude' ? { provedor: a.provedor } : {}), dir: a.dir.startsWith(HOME) ? '~' + a.dir.slice(HOME.length) : a.dir })); fs.writeFileSync(CFG_FILE, JSON.stringify(c, null, 2) + '\n'); }
+function usoDasContas() {
+  const uso = {}; for (const a of ACCOUNTS) uso[a.id] = [];
+  for (const q of projects) {
+    const bc = projEnv(q).BOSS_CONTA || '1'; uso['conta' + bc]?.push({ projeto: q.ui.title || q.id, agente: 'Boss' });
+    for (const e of readEquipe(q)) uso[contaKey(e.conta)]?.push({ projeto: q.ui.title || q.id, agente: e.nome });
+  }
+  return uso;
+}
+function setEnvVar(f, k, v) { let t = ''; try { t = fs.readFileSync(f, 'utf8'); } catch {} const re = new RegExp('^' + k + '=.*$', 'm'); t = re.test(t) ? t.replace(re, `${k}=${v}`) : t.replace(/\s*$/, '\n') + `${k}=${v}\n`; fs.writeFileSync(f, t); }
+function contaModeloAgente(p, id, conta, modelo) {
+  conta = String(conta).replace(/^conta(\d+)$/, '$1'); const acc = ACCOUNTS.find((a) => a.id === contaKey(conta)); if (!acc) throw new Error('conta inexistente');
+  if (modelo && !/^[\w.:-]{1,60}$/.test(modelo)) throw new Error('modelo inválido');
+  if (acc.provedor === 'claude' && modelo && !['sonnet', 'opus', 'haiku'].includes(modelo) && !/^claude-/.test(modelo)) throw new Error('para o Claude use sonnet, opus ou haiku');
+  if (id === 'boss' && acc.provedor !== 'claude') throw new Error('o Boss usa sempre uma conta do Claude (é ele quem coordena com as regras do Claude Code)');
+  if (id === 'boss') { const f = path.join(p.orq, 'projeto.env'); setEnvVar(f, 'BOSS_CONTA', conta); setEnvVar(f, 'BOSS_MODELO', modelo || ''); return; }
+  const f = path.join(p.orq, 'equipe.conf'); const linhas = fs.readFileSync(f, 'utf8').split('\n'); let achou = false;
+  const novo = linhas.map((l) => { const c = l.trim().split(/\s+/); if (c[0] !== id || l.trim().startsWith('#')) return l; achou = true; return `${c[0].padEnd(20)} ${(c[1] || '').padEnd(33)} ${conta}      ${modelo || ''}`.trimEnd(); });
+  if (!achou) throw new Error(id + ' não está no equipe.conf'); fs.writeFileSync(f, novo.join('\n'));
+}
+
 async function iniciarBoss(p) {
   if (p.agents.boss) return 'o Boss deste andar já está no ar';
   const addr = await ensureFloorTerm(p);
@@ -560,8 +723,10 @@ const terms = new Set();
 function openTerm(req, sock, url) {
   const origin = req.headers.origin || '';
   if (url.searchParams.get('t') !== TOKEN || !/^(http:\/\/(localhost|127\.0\.0\.1)(:\d+)?|file:\/\/|null)$/.test(origin)) { sock.destroy(); return; }
-  const p = byId[url.searchParams.get('p')]; if (!p) { sock.destroy(); return; }
-  const qual = url.searchParams.get('w') === 'boss' ? 'boss' : 'andar';
+  const login = url.searchParams.get('w') === 'login' ? String(url.searchParams.get('conta') || '') : null;
+  const p = byId[url.searchParams.get('p')] || (login ? projects[0] : null); if (!p && !login) { sock.destroy(); return; }
+  if (login && !ACCOUNTS.some((a) => a.id === login)) { sock.destroy(); return; }
+  const qual = login ? 'login' : url.searchParams.get('w') === 'boss' ? 'boss' : 'andar';
   const cols = Math.max(20, Math.min(400, Number(url.searchParams.get('c')) || 100)), rows = Math.max(5, Math.min(200, Number(url.searchParams.get('r')) || 30));
   let ch = null, fechado = false;
   wsAccept(req, sock, (m) => {
@@ -573,10 +738,10 @@ function openTerm(req, sock, url) {
   terms.add(sock);
   (async () => {
     let addr = null;
-    try { addr = qual === 'boss' ? p.agents.boss?.address : await ensureFloorTerm(p); } catch (e) { wsSend(sock, '\r\n\x1b[31m' + e.message + '\x1b[0m\r\n'); }
+    try { addr = qual === 'login' ? await ensureLoginTerm(login) : qual === 'boss' ? p.agents.boss?.address : await ensureFloorTerm(p); } catch (e) { wsSend(sock, '\r\n\x1b[31m' + e.message + '\x1b[0m\r\n'); }
     if (!addr) { if (qual === 'boss') wsSend(sock, '\r\n\x1b[33mO Boss deste andar não está no ar. Use "Iniciar Boss" ou abra o terminal do andar.\x1b[0m\r\n'); return; }
     if (fechado) return;
-    ch = spawn('python3', ['-c', PTY_PY, String(cols), String(rows), HC, 'attach', addr], { cwd: p.root, env: { ...process.env, TERM: 'xterm-256color' }, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+    ch = spawn('python3', ['-c', PTY_PY, String(cols), String(rows), HC, 'attach', addr], { cwd: p ? p.root : HOME, env: { ...process.env, TERM: 'xterm-256color' }, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
     ch.stdin.on('error', () => {}); ch.stdio[3]?.on('error', () => {});
     ch.stdout.on('data', (d) => wsSend(sock, d));
     ch.stderr.on('data', (d) => wsSend(sock, d));
@@ -599,9 +764,9 @@ function reloadTeam(p) {
   try { const pc = JSON.parse(fs.readFileSync(path.join(p.orq, 'estudio', 'config.json'), 'utf8')); const ui = pc.ui || {}; p.ui = { ...ui }; p.special = new Set(Object.keys(ui.special || {})); p.atalho = pc.atalho || p.id; } catch {}
 }
 function projEnv(p) { const o = {}; try { for (const l of fs.readFileSync(path.join(p.orq, 'projeto.env'), 'utf8').split('\n')) { const m = l.match(/^([A-Z0-9_]+)=("?)(.*?)\2\s*(#.*)?$/); if (m) o[m[1]] = m[3].replace(/\$HOME/g, HOME); } } catch {} return o; }
-function contaDir(p, n) { const env = projEnv(p); const d = n === '1' ? env.CONTA1_DIR : n === '2' ? (env.CONTA2_DIR || path.join(HOME, '.claude-conta2')) : ''; return d ? exp(d) : path.join(HOME, '.claude'); }
+function contaDir(p, n) { n = String(n || '1'); const env = p ? projEnv(p) : {}; const acc = ACCOUNTS.find((a) => a.id === 'conta' + n); const d = env['CONTA' + n + '_DIR'] || (acc ? acc.dir : n === '1' ? '' : path.join(HOME, '.claude-conta' + n)); return d ? exp(d) : path.join(HOME, '.claude'); }
 function agenteInfo(p, id) {
-  if (id === 'boss') { const c = projEnv(p).BOSS_CONTA || '1'; return { id, cwd: path.join(p.orq, 'boss'), conta: c, cfg: contaDir(p, c), settings: path.join(p.orq, 'boss', '.claude', 'settings.json'), addDirs: [p.root], instr: path.join(p.orq, 'boss', 'CLAUDE.md'), tipo: 'boss' }; }
+  if (id === 'boss') { const c = projEnv(p).BOSS_CONTA || '1'; return { id, cwd: path.join(p.orq, 'boss'), conta: c, modelo: projEnv(p).BOSS_MODELO || '', cfg: contaDir(p, c), settings: path.join(p.orq, 'boss', '.claude', 'settings.json'), addDirs: [p.root], instr: path.join(p.orq, 'boss', 'CLAUDE.md'), tipo: 'boss' }; }
   const e = readEquipe(p).find((x) => x.nome === id); if (!e) return null;
   const cwd = path.join(p.root, e.pasta), dev = id.startsWith('dev-');
   let args = ''; try { args = fs.readFileSync(path.join(cwd, 'agente.args'), 'utf8'); } catch {}
@@ -610,6 +775,17 @@ function agenteInfo(p, id) {
     repo: dev ? id.slice(4) : null, instr: dev ? path.join(p.orq, 'agentes', id + '.md') : path.join(cwd, 'CLAUDE.md') };
 }
 const escopoDir = (p, id, esc) => path.join(p.orq, 'skills', esc === 'equipe' ? '_equipe' : id);
+// agentes em outros motores (Codex, Gemini, Cursor, Copilot): as skills vão por cópia para .agents/skills (padrão Agent Skills)
+const liberadasDe = (p, id) => { try { return new Set(JSON.parse(fs.readFileSync(path.join(p.orq, 'skills', id, 'liberadas.json'), 'utf8'))); } catch { return new Set(); } };
+const motorDe = (a) => (a && !/^\d+$/.test(String(a.conta)) ? String(a.conta) : null);
+function syncInfo(cwd) { try { const j = JSON.parse(fs.readFileSync(path.join(cwd, '.agents', 'skills', '.orquestra-sync.json'), 'utf8')); return { n: (j.skills || []).length, quando: j.quando * 1000 }; } catch { return null; } }
+function syncMotor(p, id) {
+  const a = agenteInfo(p, id); if (!motorDe(a)) return Promise.resolve(null);
+  const sc = [path.join(p.orq, 'bin', 'skills_sync.py'), MODELO && path.join(MODELO, 'bin', 'skills_sync.py')].find((f) => f && fs.existsSync(f));
+  if (!sc || !fs.existsSync(a.cwd)) return Promise.resolve(null);
+  return new Promise((ok) => execFile('python3', [sc, p.orq, id, a.cwd, a.settings], { timeout: 60000, maxBuffer: 4e6 }, (err, o) => { try { ok(err ? { erro: String(err.message).slice(0, 200) } : JSON.parse(o)); } catch { ok({ erro: 'saída inválida' }); } }));
+}
+const motoresDoAndar = (p) => readEquipe(p).filter((e) => !/^\d+$/.test(e.conta)).map((e) => e.nome);
 function lerSkill(f) {
   let t = ''; try { t = fs.readFileSync(f, 'utf8'); } catch { return null; }
   const fm = t.startsWith('---') ? t.slice(3, t.indexOf('\n---', 3) > 0 ? t.indexOf('\n---', 3) : 0) : '';
@@ -634,8 +810,9 @@ function bloqueio(settingsFile) {
 }
 function fontesDe(p, id) {
   const a = agenteInfo(p, id); if (!a) return null;
-  const bl = bloqueio(a.settings), F = [];
-  const add = (tipo, rotulo, dir, extra = {}) => { const sk = skillsEm(dir); F.push({ tipo, rotulo, pasta: dir, editavel: !!extra.editavel, skills: sk.map((x) => ({ ...x, bloqueada: bl(x.nome) })), ...extra }); };
+  const bl0 = bloqueio(a.settings), lib = liberadasDe(p, id), F = [];
+  const bl = (n) => bl0(n) && !lib.has(n); const libFlag = (n) => bl0(n) && lib.has(n);
+  const add = (tipo, rotulo, dir, extra = {}) => { const sk = skillsEm(dir); F.push({ tipo, rotulo, pasta: dir, editavel: !!extra.editavel, skills: sk.map((x) => ({ ...x, bloqueada: bl(x.nome), liberada: libFlag(x.nome) })), ...extra }); };
   for (const esc of ['agente', 'equipe']) {
     const raiz = escopoDir(p, id, esc);
     add(esc, esc === 'agente' ? 'Só deste agente' : 'Da equipe toda (todos os agentes deste andar)', path.join(raiz, '.claude', 'skills'), { editavel: true, escopo: esc,
@@ -646,10 +823,15 @@ function fontesDe(p, id) {
   for (let i = 0; i < 8; i++) { const sd = path.join(d, '.claude', 'skills'); if (!vistos.has(sd) && fs.existsSync(sd)) { vistos.add(sd); add('pasta', d === a.cwd ? 'Da pasta de trabalho dele' : (path.relative(p.root, d) ? 'Da pasta ' + path.relative(p.root, d) : 'Da pasta do projeto'), sd); } if (fs.existsSync(path.join(d, '.git')) || d === p.root || d === HOME) break; d = path.dirname(d); }
   if (a.tipo === 'dev') { const sd = path.join(p.root, a.repo, '.claude', 'skills'); if (!vistos.has(sd) && fs.existsSync(sd) && !fs.existsSync(path.join(a.cwd, '.claude', 'skills'))) { vistos.add(sd); add('pasta', 'Do repositório ' + a.repo, sd); } }
   for (const ad of a.addDirs) { const sd = path.join(ad, '.claude', 'skills'); if (!vistos.has(sd) && fs.existsSync(sd)) { vistos.add(sd); add('pasta', 'Do projeto', sd); } }
-  const acc = ACCOUNTS.find((x) => x.dir === a.cfg); const nomeConta = acc ? acc.id : 'conta ' + a.conta;
+  const mt = motorDe(a);
+  if (mt) {
+    add('pasta', 'Pessoais (~/.claude/skills)', path.join(HOME, '.claude', 'skills'));
+    return { agente: { id, tipo: a.tipo, conta: PROVEDORES[mt]?.nome || mt, cwd: a.cwd, motor: { id: mt, nome: PROVEDORES[mt]?.nome || mt, pasta: path.join(a.cwd, '.agents', 'skills').replace(HOME, '~'), sync: syncInfo(a.cwd) } }, fontes: F.filter((f) => f.editavel || f.skills.length) };
+  }
+  const acc = ACCOUNTS.find((x) => x.dir === a.cfg); const nomeConta = acc ? (acc.nome || acc.id) : 'conta ' + a.conta;
   add('conta', `Da conta ${nomeConta} (todos que usam esta conta, em qualquer projeto)`, path.join(a.cfg, 'skills'));
   add('conta', 'Sincronizadas do claude.ai', path.join(a.cfg, 'skills', 'synced'));
-  const pl = pluginSkills(a.cfg); if (pl.length) F.push({ tipo: 'plugin', rotulo: 'De plugins instalados nesta conta', pasta: path.join(a.cfg, 'plugins'), editavel: false, skills: pl.map((x) => ({ ...x, bloqueada: bl(x.plugin + ':' + x.nome) || bl(x.nome) })) });
+  const pl = pluginSkills(a.cfg); if (pl.length) F.push({ tipo: 'plugin', rotulo: 'De plugins instalados nesta conta', pasta: path.join(a.cfg, 'plugins'), editavel: false, skills: pl.map((x) => ({ ...x, bloqueada: bl(x.plugin + ':' + x.nome) || bl(x.nome), liberada: libFlag(x.plugin + ':' + x.nome) || libFlag(x.nome) })) });
   return { agente: { id, tipo: a.tipo, conta: nomeConta, cwd: a.cwd }, fontes: F.filter((f) => f.editavel || f.skills.length) };
 }
 function dentroDeFonte(p, id, arq) {
@@ -670,7 +852,9 @@ function appendBossLinha(p, linha) {
 }
 function novoAgente(p, j) {
   const tipo = j.tipo === 'dev' ? 'dev' : 'especialista';
-  const conta = j.conta === '1' ? '1' : '2', modelo = ['sonnet', 'opus', 'haiku'].includes(j.modelo) ? j.modelo : 'sonnet';
+  const conta = ACCOUNTS.some((a) => a.id === contaKey(String(j.conta || ''))) ? String(j.conta) : '2';
+  const prov = ACCOUNTS.find((a) => a.id === contaKey(conta))?.provedor || 'claude';
+  const modelo = /^[\w.:-]{1,60}$/.test(j.modelo || '') ? j.modelo : prov === 'claude' ? 'sonnet' : '';
   const equipe = readEquipe(p), texto = String(j.instrucoes || '').trim();
   let nome, pasta;
   if (tipo === 'dev') {
@@ -678,7 +862,7 @@ function novoAgente(p, j) {
     nome = 'dev-' + repo; pasta = '.worktrees/' + nome;
   } else {
     nome = String(j.nome || '').toLowerCase(); if (!SLUG.test(nome) || RESERVADOS.has(nome) || nome.startsWith('dev-') || nome.startsWith('srv-')) throw new Error('nome inválido: use letras minúsculas, números e hífen (ex.: seguranca, docs-api)');
-    if ((p.id + '-' + nome).length > 32) throw new Error('nome longo demais');
+    if (nome.length > 40) throw new Error('nome longo demais');
     pasta = '.orquestra/' + nome;
     if (fs.existsSync(path.join(p.root, pasta))) throw new Error('já existe a pasta ' + pasta);
   }
@@ -694,8 +878,8 @@ function novoAgente(p, j) {
     let deny = (st.permissions.deny || []).filter((d) => !['Edit(**)', 'Write(**)', 'NotebookEdit(**)'].includes(d));
     for (const c of ['merge', 'rebase', 'pull', 'push', 'commit', 'checkout', 'switch', 'reset', 'stash', 'cherry-pick', 'clean', 'worktree', 'tag']) deny.push(`Bash(git ${c}:*)`, `Bash(*git * ${c} *)`);
     deny.push('Bash(gh pr merge*)', 'Bash(gh api*)', 'Bash(glab mr merge*)', 'Bash(glab api*)', 'Bash(*ok.sh*)', 'Bash(*tarefa.sh*)', 'Bash(*dev.sh*)');
-    for (const d of fs.readdirSync(p.root)) if (fs.existsSync(path.join(p.root, d, '.git'))) for (const t of ['Edit', 'Write', 'NotebookEdit']) deny.push(`${t}(//${path.join(p.root, d).replace(/^\//, '')}/**)`);
-    for (const t of ['Edit', 'Write']) deny.push(`${t}(//${path.join(p.root, '.worktrees').replace(/^\//, '')}/**)`);
+    for (const d of fs.readdirSync(p.root)) if (fs.existsSync(path.join(p.root, d, '.git'))) deny.push(`Edit(//${path.join(p.root, d).replace(/^\//, '')}/**)`);
+    deny.push(`Edit(//${path.join(p.root, '.worktrees').replace(/^\//, '')}/**)`);
     st.permissions.deny = [...new Set(deny)]; delete st.permissions.allow;
     fs.writeFileSync(path.join(dir, 'agente-settings.json'), JSON.stringify(st, null, 2));
     fs.mkdirSync(path.join(p.orq, 'relatorios', nome), { recursive: true });
@@ -771,7 +955,13 @@ async function inspecionaPasta(dir) {
   if (r.jaTemAndar) { const pc = lerJson(path.join(dir, '.orquestra', 'estudio', 'config.json'), {}); r.andar = { id: pc.project_id || null, titulo: pc.ui?.title || null, noPredio: !!byId[pc.project_id] }; }
   if (!r.existe) return r;
   let ds = []; try { ds = fs.readdirSync(dir).sort(); } catch {}
-  if (fs.existsSync(path.join(dir, '.git'))) r.ehRepo = true; // a própria pasta é um repo: precisa de uma pasta acima
+  if (fs.existsSync(path.join(dir, '.git'))) { // a própria pasta é um repo: o andar fica numa pasta ao lado, com um atalho para ele
+    r.ehRepo = true; const u = (await gitRun(dir, ['config', '--get', 'remote.origin.url'])).out.trim();
+    r.repoProprio = { nome: path.basename(dir), remoto: u.replace(/\/\/[^@/]*@/, '//'), plat: plataforma(u), develop: (await gitRun(dir, ['rev-parse', '-q', '--verify', 'refs/remotes/origin/develop'])).ok };
+    r.pastaDoAndar = path.join(path.dirname(dir), path.basename(dir) + '-orquestra').replace(HOME, '~');
+    const w = path.join(path.dirname(dir), path.basename(dir) + '-orquestra'); if (fs.existsSync(path.join(w, '.orquestra'))) { r.jaTemAndar = true; const pc = lerJson(path.join(w, '.orquestra', 'estudio', 'config.json'), {}); r.andar = { id: pc.project_id || null, titulo: pc.ui?.title || null, noPredio: !!byId[pc.project_id] }; r.caminhoAndar = w; }
+    return r;
+  }
   for (const d of ds) if (!d.startsWith('.') && fs.existsSync(path.join(dir, d, '.git'))) {
     const u = (await gitRun(path.join(dir, d), ['config', '--get', 'remote.origin.url'])).out.trim();
     const dev = (await gitRun(path.join(dir, d), ['rev-parse', '-q', '--verify', 'refs/remotes/origin/develop'])).ok;
@@ -796,7 +986,7 @@ if [ "\${rodando:-0}" -gt 0 ] && [ "\${rodando}" -ge "$((codigo - 2000))" ] && [
   echo "Orquestra já está rodando (porta $PORT)."
 else
   pids="$(lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true)"; [ -n "$pids" ] && { kill $pids 2>/dev/null || true; sleep 0.5; }
-  (cd "$SRV_DIR" && ORQ_CONFIG="$CFG" nohup node server.mjs > "$(dirname "$CFG")/data/server.log" 2>&1 &)
+  (cd "$SRV_DIR" && ORQ_CONFIG="$CFG" env -u HC_TERMINAL_ID nohup node server.mjs > "$(dirname "$CFG")/data/server.log" 2>&1 < /dev/null &)
   sleep 1; echo "Orquestra iniciado (porta $PORT)."
 fi
 [ -n "\${NO_OPEN:-}" ] && exit 0
@@ -820,9 +1010,58 @@ Merge, aprovar MR, push em \`__BASE__\`, force push, apagar branch remota, mexer
 function settingsDe(orq) { const out = [path.join(orq, 'dev-settings.json'), path.join(orq, 'boss', '.claude', 'settings.json')]; try { for (const d of fs.readdirSync(orq)) { const f = path.join(orq, d, 'agente-settings.json'); if (fs.existsSync(f)) out.push(f); } } catch {} return out.filter((f) => fs.existsSync(f)); }
 function negaPasta(arquivo, raiz) {
   const d = lerJson(arquivo, null); if (!d) return; d.permissions ||= {}; const deny = d.permissions.deny || [];
-  const abs = '//' + raiz.replace(/^\//, ''); for (const t of ['Read', 'Edit', 'Write', 'Glob', 'Grep']) deny.push(`${t}(${abs}/**)`);
+  const abs = '//' + raiz.replace(/^\//, ''); for (const t of ['Read', 'Edit']) deny.push(`${t}(${abs}/**)`); // Read cobre Glob/Grep e Edit cobre Write (o Claude avisa que Write()/Glob() com caminho nunca casam)
   deny.push(`Bash(*${path.relative(HOME, raiz)}*)`); d.permissions.deny = [...new Set(deny)]; fs.writeFileSync(arquivo, JSON.stringify(d, null, 2));
 }
+
+// ---------- informações do andar (nome, "sobre o projeto", repositórios) — editáveis pelo Orquestra ----------
+const SOBRE = '**Sobre o projeto:**';
+function lerSobre(p) {
+  let t = ''; try { t = fs.readFileSync(path.join(p.orq, 'boss', 'CLAUDE.md'), 'utf8'); } catch {}
+  const i = t.indexOf(SOBRE); if (i < 0) return '';
+  const fim = t.indexOf('\n## ', i); return t.slice(i + SOBRE.length, fim < 0 ? undefined : fim).trim();
+}
+function gravaSobre(p, texto) {
+  const f = path.join(p.orq, 'boss', 'CLAUDE.md'); let t = fs.readFileSync(f, 'utf8'); texto = String(texto || '').replace(/\r/g, '').trim();
+  const bloco = texto ? `${SOBRE} ${texto}\n\n` : '';
+  const i = t.indexOf(SOBRE);
+  if (i >= 0) { const fim = t.indexOf('\n## ', i); t = t.slice(0, i) + bloco + (fim < 0 ? '' : t.slice(fim + 1)); }
+  else if (bloco) { const k = t.indexOf('\n## '); t = k < 0 ? t.replace(/\s*$/, '\n\n') + bloco : t.slice(0, k + 1) + bloco + t.slice(k + 1); }
+  fs.writeFileSync(f, t);
+}
+function infoAndar(p) {
+  const devs = new Set(readEquipe(p).map((x) => x.nome)), c = lerJson(path.join(p.orq, 'estudio', 'config.json'), {});
+  const repos = fs.readdirSync(p.root).filter((d) => !d.startsWith('.') && fs.existsSync(path.join(p.root, d, '.git'))).map((d) => {
+    const l = path.join(p.root, d); let link = null; try { if (fs.lstatSync(l).isSymbolicLink()) link = fs.realpathSync(l).replace(HOME, '~'); } catch {}
+    return { nome: d, link, dev: devs.has('dev-' + d) };
+  });
+  return { id: p.id, titulo: p.ui.title || p.id, marca: p.ui.brand || '', atalho: p.atalho, pasta: p.root.replace(HOME, '~'), sobre: lerSobre(p), descricao: c.ui?.about || c.descricao || '', repos };
+}
+function negaRepoNosEspecialistas(p, dir) {
+  const regra = `Edit(//${dir.replace(/^\//, '')}/**)`;
+  for (const d of fs.readdirSync(p.orq)) { const f = path.join(p.orq, d, 'agente-settings.json'); const s = lerJson(f, null); if (!s) continue; s.permissions ||= {}; s.permissions.deny = [...new Set([...(s.permissions.deny || []), regra])]; fs.writeFileSync(f, JSON.stringify(s, null, 2)); }
+}
+
+// ---------- "precisa de você": lê a pergunta/aprovação que está na tela do agente e responde por botões ----------
+function lerPergunta(tela) {
+  const L = String(tela || '').replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').split('\n');
+  const opRe = /^\s*(❯|›|>)?\s*(\d+)\.\s+(.+?)\s*$/;
+  let fim = L.length - 1; while (fim > 0 && !opRe.test(L[fim])) fim--;
+  if (fim <= 0) return { opcoes: [], contexto: L.slice(-25).join('\n').trim() };
+  let ini = fim; while (ini > 0 && (opRe.test(L[ini - 1]) || (/^\s{3,}\S/.test(L[ini - 1]) && !/^\s*[─│]/.test(L[ini - 1])) || /^─{5,}/.test(L[ini - 1].trim()))) ini--;
+  const opcoes = [];
+  for (let i = ini; i <= fim + 3 && i < L.length; i++) {
+    const m = L[i].match(opRe);
+    if (m) opcoes.push({ n: +m[2], texto: m[3], atual: !!m[1], desc: '' });
+    else if (opcoes.length && /^\s{3,}\S/.test(L[i]) && !/Enter to|Esc to/.test(L[i])) opcoes[opcoes.length - 1].desc += (opcoes[opcoes.length - 1].desc ? ' ' : '') + L[i].trim();
+  }
+  const antes = L.slice(Math.max(0, ini - 30), ini).filter((x) => !/^\s*─{5,}/.test(x));
+  const titulo = (antes.map((x) => x.match(/☐\s*(.+)/)).filter(Boolean).pop() || [])[1] || '';
+  const pergunta = antes.filter((x) => /^\s*│/.test(x)).map((x) => x.replace(/^\s*│\s?/, '')).join('\n').trim();
+  return { titulo, pergunta, opcoes, contexto: antes.join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(-2500) };
+}
+const telaDe = (addr) => new Promise((ok) => execFile(HC, ['read', addr, '--lines', '80'], { timeout: 8000, maxBuffer: 2e6 }, (e, o) => ok(String(o || ''))));
+function resumo(s) { const l = String(s || '').trim().split(/\n/)[0].replace(/[*#`]/g, '').trim(); if (l.length <= 200) return l; const m = l.match(/^.{20,200}?[.!?](\s|$)/); return (m ? m[0] : l.slice(0, 197) + '…').trim(); }
 async function criarAndar(j, progresso) {
   if (!MODELO) throw new Error('não achei os modelos de andar (pasta modelo/) junto do servidor');
   const titulo = String(j.titulo || '').trim().slice(0, 40); if (!titulo) throw new Error('dê um nome ao andar');
@@ -831,8 +1070,12 @@ async function criarAndar(j, progresso) {
   const atalho = String(j.atalho || id); if (!/^[a-z][a-z0-9_-]{1,19}$/.test(atalho)) throw new Error('atalho inválido (letras minúsculas, números, - e _)');
   if (atalhosUsados().has(atalho) || projects.some((q) => q.atalho === atalho)) throw new Error(`o atalho "${atalho}" já é de outro andar`);
   if (await temCli(atalho)) throw new Error(`"${atalho}" já é um comando do sistema — escolha outro atalho`);
-  const root = path.resolve(exp(String(j.pasta || '').trim())); if (!j.pasta || root === HOME || root === '/') throw new Error('escolha a pasta do projeto');
-  if (fs.existsSync(path.join(root, '.git'))) throw new Error('essa pasta é um repositório — escolha (ou crie) a pasta ACIMA dela, que contém o(s) repo(s)');
+  let root = path.resolve(exp(String(j.pasta || '').trim())); if (!j.pasta || root === HOME || root === '/') throw new Error('escolha a pasta do projeto');
+  if (fs.existsSync(path.join(root, '.git'))) {
+    // projeto de um repo só: cria a pasta do andar ao lado (<repo>-orquestra) com um atalho (link) para o repositório — o repo não é tocado
+    const repo = root, nome = path.basename(repo); root = path.join(path.dirname(repo), nome + '-orquestra');
+    if (!fs.existsSync(path.join(root, '.orquestra'))) { fs.mkdirSync(root, { recursive: true }); const link = path.join(root, nome); if (!fs.existsSync(link)) fs.symlinkSync(path.join('..', nome), link); }
+  }
   if (fs.existsSync(path.join(root, '.orquestra'))) throw new Error('essa pasta já tem um andar (.orquestra)');
   if (projects.some((q) => root === q.root || root.startsWith(q.root + path.sep) || q.root.startsWith(root + path.sep))) throw new Error('essa pasta se sobrepõe a outro andar');
   fs.mkdirSync(root, { recursive: true });
@@ -849,7 +1092,7 @@ async function criarAndar(j, progresso) {
   if (!info.repos.length) throw new Error('nenhum repositório git nessa pasta (coloque os repos dentro dela ou informe URLs para clonar)');
   const base = /^[\w.\/-]+$/.test(j.base || '') ? j.base : info.repos.some((r) => r.develop) ? 'develop' : 'main';
   const plat = j.git === 'nenhum' ? null : (j.git === 'github' || j.git === 'gitlab') ? j.git : (info.repos.map((r) => r.plat).find(Boolean) || null);
-  const contaEq = j.contaEquipe === '1' ? '1' : '2', contaBoss = j.contaBoss === '2' ? '2' : '1';
+  const contaEq = ACCOUNTS.some((a) => a.id === contaKey(String(j.contaEquipe || ''))) ? String(j.contaEquipe) : '2', contaBoss = /^\d+$/.test(String(j.contaBoss || '')) && ACCOUNTS.some((a) => a.id === 'conta' + j.contaBoss) ? String(j.contaBoss) : '1';
   const mDev = ['sonnet', 'opus', 'haiku'].includes(j.modeloDevs) ? j.modeloDevs : 'sonnet', mEsp = ['sonnet', 'opus', 'haiku'].includes(j.modeloEspecialistas) ? j.modeloEspecialistas : 'sonnet';
   progresso('montando a equipe…');
   const orq = path.join(root, '.orquestra');
@@ -870,19 +1113,23 @@ async function criarAndar(j, progresso) {
   if (j.qa) linhas.push(`${'qa'.padEnd(24)} ${'.orquestra/qa'.padEnd(34)} ${contaEq}  ${mEsp}`);
   if (plat) linhas.push(`${plat.padEnd(24)} ${('.orquestra/' + plat).padEnd(34)} ${contaEq}  ${mEsp}`);
   fs.writeFileSync(path.join(orq, 'equipe.conf'), linhas.join('\n') + '\n');
+  // aceite de confiança já dado (o andar é seu): o Claude/motor não para na tela "Do you trust this folder?"
+  try { confiaPasta(contaDir(null, contaBoss), path.join(orq, 'boss')); } catch {}
+  for (const d of ['qa', plat].filter(Boolean)) { const pd = path.join(orq, d); if (!fs.existsSync(pd)) continue; try { /^\d+$/.test(contaEq) ? confiaPasta(contaDir(null, contaEq), pd) : confiaMotor(contaEq, pd); } catch {} }
   fs.writeFileSync(path.join(orq, 'servicos.conf'), ['# Serviços do projeto (terminais srv-* no Herdr). Subir/parar também pelo Orquestra.', '# nome   pasta   comando   [#parar: comando]   [#manual = não sobe sozinho]',
     ...info.repos.map((r) => fs.existsSync(path.join(root, r.nome, 'package.json')) ? `# srv-${r.nome}   ${r.nome}   npm run dev   #manual` : (fs.existsSync(path.join(root, r.nome, 'docker-compose.yml')) || fs.existsSync(path.join(root, r.nome, 'compose.yaml'))) ? `# srv-${r.nome}   ${r.nome}   docker compose up   #parar: docker compose down   #manual` : `# srv-${r.nome}   ${r.nome}   <comando>   #manual`)].join('\n') + '\n');
   // config do andar
   const cores = ['#e8875a', '#5aa9ff', '#b98cff', '#4fd1c5', '#f2c14e', '#ff9ecd', '#8bd450', '#c4a484', '#a0a8b8'];
   const special = {}; if (j.qa) special.qa = { title: 'QA', sub: 'valida no navegador (Playwright)', color: '#e9ff70', decor: 'qa' };
   if (plat) special[plat] = { title: plat === 'github' ? 'GitHub' : 'GitLab', sub: plat === 'github' ? 'PRs e checks' : 'MRs e pipelines', color: '#ff6b35', decor: 'gitlab' };
-  fs.writeFileSync(path.join(orq, 'estudio', 'config.json'), JSON.stringify({ project_id: id, atalho, ui: { title: titulo, brand: titulo.length <= 14 ? titulo : titulo.split(' ')[0], subtitle: 'ORQUESTRA DE AGENTES', repos: repos.map((r) => r.nome), labels: {}, colors: Object.fromEntries(repos.map((r, i) => [r.nome, cores[i % cores.length]])), special, about: String(j.sobre || '').trim() || `${titulo}: ${repos.map((r) => r.nome).join(', ')}` }, sessoes: { boss: 'nova', equipe: 'nova', memoria: true } }, null, 2) + '\n');
+  fs.writeFileSync(path.join(orq, 'estudio', 'config.json'), JSON.stringify({ project_id: id, atalho, ui: { title: titulo, brand: titulo.length <= 14 ? titulo : titulo.split(' ')[0], subtitle: 'ORQUESTRA DE AGENTES', repos: repos.map((r) => r.nome), labels: {}, colors: Object.fromEntries(repos.map((r, i) => [r.nome, cores[i % cores.length]])), special, about: resumo(j.sobre) || `${titulo}: ${repos.map((r) => r.nome).join(', ')}` }, sessoes: { boss: 'nova', equipe: 'nova', memoria: true } }, null, 2) + '\n');
   // placeholders dos modelos
   const sub = { __TITULO__: titulo, __BASE__: base, __ORQ__: orq, __MAPA__: info.repos.map((r) => `| \`${r.nome}\` | (descreva) | (comandos) |`).join('\n'), __EQUIPE__: repos.map((r) => `| \`dev-${r.nome}\` | dev residente de \`${r.nome}\`; mesa = \`../../.worktrees/dev-${r.nome}\` |`).join('\n') };
   const walk = (d) => { for (const x of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, x.name); if (x.isDirectory()) { if (!['relatorios', 'data'].includes(x.name)) walk(f); } else if (/\.(md|json)$/.test(x.name)) { let t = fs.readFileSync(f, 'utf8'), n = t; for (const [k, v] of Object.entries(sub)) n = n.split(k).join(v); if (n !== t) fs.writeFileSync(f, n); } } };
   walk(orq);
   // Boss e protocolo conforme a equipe escolhida
   const bf = path.join(orq, 'boss', 'CLAUDE.md'); let bt = fs.readFileSync(bf, 'utf8');
+  if (String(j.sobre || '').trim()) { const cf = path.join(orq, 'estudio', 'config.json'), c = lerJson(cf, {}); c.ui ||= {}; if (!c.ui.about) { c.ui.about = String(j.descricao || '').trim().slice(0, 300) || ((String(j.sobre).trim().split(/\n/)[0].replace(/[*#`]/g, '').match(/^.{20,200}?[.!?](\s|$)/) || [String(j.sobre).trim().split(/\n/)[0].slice(0, 200)])[0].trim()); fs.writeFileSync(cf, JSON.stringify(c, null, 2) + '\n'); } }
   if (String(j.sobre || '').trim()) bt = bt.replace('Pasta do projeto: `../..` a partir daqui.', `Pasta do projeto: \`../..\` a partir daqui.\n\n**Sobre o projeto:** ${String(j.sobre).trim()}`);
   if (plat === 'gitlab') bt = bt.split('send github "ABRIR PR').join('send gitlab "ABRIR MR').split('GitHub abre o PR').join('GitLab abre o MR').replace('| `github` | abre o PR (depois do seu OK) e acompanha os checks |', '| `gitlab` | abre o MR (depois do seu OK) e acompanha a pipeline |');
   if (!plat) bt = bt.replace(/\n\| `github` \|[^\n]*/, '').replace(/4\. Usuário aprovou →[^\n]*/, '4. Usuário aprovou → diga a ele para abrir o MR/PR pela aba **Git** do Orquestra (não há agente de Git nesta equipe).');
@@ -950,6 +1197,38 @@ async function gerenciaPredio(j) {
     fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
     const antigo = p.atalho; if (atalho !== antigo) atalhoTroca(antigo, atalho, p.root);
     reloadTeam(p); emit(p); broadcastAll('rooms', rooms()); return `andar atualizado${atalho !== antigo ? ` — novo atalho: ${atalho} (abra um terminal novo do Herdr para usar)` : ''}`;
+  }
+  if (j.action === 'info-salvar') {
+    const p = byId[j.id]; if (!p) throw new Error('andar não encontrado');
+    const f = path.join(p.orq, 'estudio', 'config.json'), c = lerJson(f, {}); c.ui ||= {}; c.ui.about = String(j.descricao || '').trim().slice(0, 300); delete c.descricao;
+    fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); gravaSobre(p, j.sobre);
+    reloadTeam(p); emit(p); broadcastAll('rooms', rooms()); return 'salvo — o Boss passa a usar quando reiniciar ou renovar o contexto';
+  }
+  if (j.action === 'repo-adicionar') {
+    const p = byId[j.id]; if (!p) throw new Error('andar não encontrado');
+    const src = path.resolve(exp(String(j.pasta || '').trim())); if (!fs.existsSync(path.join(src, '.git'))) throw new Error('essa pasta não é um repositório git');
+    let nome = path.basename(src);
+    if (path.dirname(src) !== p.root) {
+      if (fs.existsSync(path.join(p.root, nome))) throw new Error(`já existe "${nome}" na pasta do andar`);
+      fs.symlinkSync(path.relative(p.root, src), path.join(p.root, nome)); // atalho (link) para o repo — o repo não é tocado
+    }
+    negaRepoNosEspecialistas(p, path.join(p.root, nome));
+    let dev = ''; if (j.dev !== false && !readEquipe(p).some((x) => x.nome === 'dev-' + nome)) { const ref = readEquipe(p).find((x) => x.nome.startsWith('dev-')); dev = novoAgente(p, { tipo: 'dev', repo: nome, conta: j.conta || ref?.conta, modelo: j.modelo || ref?.modelo }); }
+    const f = path.join(p.orq, 'estudio', 'config.json'), c = lerJson(f, {}); c.ui ||= {}; c.ui.repos = [...new Set([...(c.ui.repos || []), nome])]; fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
+    reloadTeam(p); emit(p); broadcastAll('rooms', rooms());
+    return `${nome} entrou no andar${dev ? ` com o ${dev} (chame ele no card quando quiser)` : ''}`;
+  }
+  if (j.action === 'repo-remover') {
+    const p = byId[j.id]; if (!p) throw new Error('andar não encontrado');
+    const nome = String(j.nome || ''); const l = path.join(p.root, nome); if (!/^[\w.-]+$/.test(nome) || !fs.existsSync(path.join(l, '.git'))) throw new Error('repositório não encontrado');
+    const dev = 'dev-' + nome;
+    if (p.agents[dev]) { await hcRun(['interrupt', p.agents[dev].address]); await sleep(1000); await hcRun(['kill', p.agents[dev].address]); }
+    const ef = path.join(p.orq, 'equipe.conf'); fs.writeFileSync(ef, fs.readFileSync(ef, 'utf8').split('\n').filter((x) => x.trim().split(/\s+/)[0] !== dev).join('\n'));
+    const f = path.join(p.orq, 'estudio', 'config.json'), c = lerJson(f, {}); c.ui ||= {}; c.ui.repos = (c.ui.repos || []).filter((r) => r !== nome); fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
+    let link = false; try { link = fs.lstatSync(l).isSymbolicLink(); } catch {}
+    if (link) fs.unlinkSync(l); // só o atalho; o repositório original fica onde está
+    reloadTeam(p); emit(p); broadcastAll('rooms', rooms());
+    return `${nome} saiu do andar${link ? ' (era um atalho — o repositório original não foi tocado)' : ' — a pasta continua aí, só não tem mais dev nem aparece no escritório'}. A cópia de trabalho do ${dev} (.worktrees/${dev}) ficou guardada.`;
   }
   if (j.action === 'remover') {
     const p = byId[j.id]; if (!p) throw new Error('andar não encontrado');
@@ -1046,7 +1325,7 @@ const server = http.createServer((req, res) => {
           return out(200, 'pedi ao Boss para retomar a sessão de ' + dt(s.start));
         }
         if (!p.team.includes(id)) return out(400, 'dev extra não é retomado por aqui');
-        const nomeHc = p.id + '-' + id;
+        const nomeHc = tnHc(p, id);
         if (p.agents[id]) { await hcRun(['interrupt', nomeHc]); await sleep(1200); await hcRun(['kill', nomeHc]); await sleep(1500); }
         const env = { ...process.env, ORQ_RESUME: s.sid, HC_TERMINAL_ID: p.agents.boss?.address || '' }; if (!env.HC_TERMINAL_ID) delete env.HC_TERMINAL_ID;
         execFile(path.join(p.orq, 'bin', 'equipe.sh'), ['--so', id], { env, timeout: 90000, maxBuffer: 2e6 }, (err, o, se) => {
@@ -1090,7 +1369,7 @@ const server = http.createServer((req, res) => {
     const repos = fs.readdirSync(p.root).filter((d) => fs.existsSync(path.join(p.root, d, '.git'))).map((d) => ({ nome: d, temDev: devs.has('dev-' + d) }));
     let instr = ''; if (a) { try { instr = fs.readFileSync(a.instr, 'utf8'); } catch {} }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ repos, agente: a ? { id, tipo: a.tipo, conta: a.conta, modelo: a.modelo || '', arquivo: a.instr.replace(HOME, '~'), instrucoes: instr } : null }));
+    return res.end(JSON.stringify({ repos, contas: ACCOUNTS.map((x) => ({ id: x.id, nome: x.nome || '', provedor: x.provedor, nomeProvedor: PROVEDORES[x.provedor]?.nome, n: x.provedor === 'claude' ? x.id.replace('conta', '') : x.id, email: acctInfo[x.id]?.email || '', modelos: PROVEDORES[x.provedor]?.modelos || ['sonnet', 'haiku', 'opus'] })), agente: a ? { id, tipo: a.tipo, conta: a.conta, modelo: a.modelo || '', motor: motorDe(a), motorNome: PROVEDORES[motorDe(a)]?.nome || '', sync: motorDe(a) ? syncInfo(a.cwd) : null, arquivo: a.instr.replace(HOME, '~'), instrucoes: instr } : null }));
   }
   if ((url.pathname === '/skills' || url.pathname === '/agente') && req.method === 'POST') {
     if (req.headers['x-token'] !== TOKEN) { res.writeHead(403); return res.end('token'); }
@@ -1110,6 +1389,12 @@ const server = http.createServer((req, res) => {
             execFile(path.join(p.orq, 'bin', 'equipe.sh'), ['--so', nome], { env, timeout: 120000, maxBuffer: 2e6 }, (err, o, se) => { setTimeout(pollHc, 1500); out(200, err ? `${nome} criado, mas não subiu: ${String(se || err.message).slice(0, 300)}` : `${nome} entrou na equipe e está chegando ao escritório`, { nome }); });
             return;
           }
+          if (j.action === 'conta-modelo') {
+            const id = String(j.agent || ''); if (!agenteInfo(p, id)) return out(404, 'agente não é deste andar');
+            contaModeloAgente(p, id, String(j.conta || ''), String(j.modelo || '')); reloadTeam(p);
+            logEvent(p, { from: 'voce', to: id, kind: 'servico', text: `${id}: conta ${j.conta}${j.modelo ? ' · ' + j.modelo : ''}` });
+            return out(200, 'salvo — vale quando ele reiniciar');
+          }
           if (j.action === 'instrucoes') {
             const a = agenteInfo(p, String(j.agent || '')); if (!a) return out(404, 'agente não é deste andar');
             fs.mkdirSync(path.dirname(a.instr), { recursive: true }); fs.writeFileSync(a.instr, String(j.texto || '').replace(/\r/g, ''));
@@ -1120,29 +1405,48 @@ const server = http.createServer((req, res) => {
         }
         // skills
         const id = String(j.agent || ''); if (!agenteInfo(p, id)) return out(404, 'agente não é deste andar');
+        if (j.action === 'sincronizar') {
+          const alvos = j.todos ? motoresDoAndar(p) : [id]; const rs = await Promise.all(alvos.map((x) => syncMotor(p, x)));
+          const ok = rs.filter((r) => r && !r.erro); if (!ok.length) return out(400, rs.find((r) => r?.erro)?.erro || 'este agente usa o Claude — as skills já valem direto');
+          return out(200, alvos.map((x, i) => rs[i]?.erro ? `${x}: erro` : `${x}: ${rs[i]?.skills.length ?? 0} skill(s)`).join(' · ') + ' sincronizadas', { resultado: rs });
+        }
+        if (j.action === 'liberar' || j.action === 'bloquear') {
+          if (id === 'boss') return out(400, 'o Boss segue as regras do projeto — não dá para liberar skill bloqueada para ele');
+          const sk = String(j.nome || ''); if (!/^[\w.:-]{1,80}$/.test(sk)) return out(400, 'nome de skill inválido');
+          const a = agenteInfo(p, id), lib = liberadasDe(p, id); j.action === 'liberar' ? lib.add(sk) : lib.delete(sk);
+          if (j.action === 'liberar' && !bloqueio(a.settings)(sk)) return out(400, sk + ' não está bloqueada para ' + id);
+          const dir = path.join(p.orq, 'skills', id); fs.mkdirSync(dir, { recursive: true });
+          const lf = path.join(dir, 'liberadas.json'), gf = path.join(dir, 'settings.gerado.json');
+          if (lib.size) fs.writeFileSync(lf, JSON.stringify([...lib].sort(), null, 2) + '\n'); else { fs.rmSync(lf, { force: true }); fs.rmSync(gf, { force: true }); }
+          logEvent(p, { from: 'voce', to: id, kind: 'servico', text: `${id}: skill ${sk} ${j.action === 'liberar' ? 'liberada' : 'bloqueada de novo'}` });
+          let extra = ''; if (motorDe(a)) { const r = await syncMotor(p, id); if (r && !r.erro) extra = ' · cópias em .agents/skills atualizadas'; }
+          return out(200, `${sk} ${j.action === 'liberar' ? 'liberada' : 'bloqueada de novo'} para ${id} — vale quando ele reiniciar${extra}`);
+        }
         const esc = j.escopo === 'equipe' ? 'equipe' : 'agente', raiz = escopoDir(p, id, esc), ativas = path.join(raiz, '.claude', 'skills'), desat = path.join(raiz, 'skills-desativadas');
         const nome = String(j.nome || '').toLowerCase();
         if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(nome)) return out(400, 'nome da skill: letras minúsculas, números e hífen');
         fs.mkdirSync(ativas, { recursive: true });
+        const alvosSync = esc === 'equipe' ? motoresDoAndar(p) : motorDe(agenteInfo(p, id)) ? [id] : [];
+        const fim = async (code, msg) => { if (code === 200 && alvosSync.length) { const rs = await Promise.all(alvosSync.map((x) => syncMotor(p, x))); const n = rs.filter((r) => r && !r.erro).length; if (n) msg += ` · sincronizada com ${n === 1 && alvosSync.length === 1 ? alvosSync[0] : n + ' agente(s) em outros motores'}`; } out(code, msg); };
         if (j.action === 'salvar') {
           fs.mkdirSync(path.join(ativas, nome), { recursive: true }); fs.writeFileSync(path.join(ativas, nome, 'SKILL.md'), corpoSkill(nome, j.descricao, j.conteudo));
-          return out(200, `skill ${nome} salva (${esc === 'equipe' ? 'para a equipe toda' : 'só para ' + id}) — já vale nas próximas mensagens`);
+          return fim(200, `skill ${nome} salva (${esc === 'equipe' ? 'para a equipe toda' : 'só para ' + id}) — já vale nas próximas mensagens`);
         }
         if (j.action === 'copiar') {
           const de = String(j.de || ''); if (!dentroDeFonte(p, id, de)) return out(403, 'origem fora das skills deste agente');
           if (fs.existsSync(path.join(ativas, nome))) return out(409, 'já existe uma skill ' + nome + ' aí');
-          fs.cpSync(path.dirname(de), path.join(ativas, nome), { recursive: true, dereference: true }); return out(200, `skill ${nome} copiada`);
+          fs.cpSync(path.dirname(de), path.join(ativas, nome), { recursive: true, dereference: true }); return fim(200, `skill ${nome} copiada`);
         }
         if (j.action === 'desativar' || j.action === 'ativar') {
           const [a, b] = j.action === 'desativar' ? [ativas, desat] : [desat, ativas];
           if (!fs.existsSync(path.join(a, nome))) return out(404, 'skill não encontrada'); fs.mkdirSync(b, { recursive: true });
           if (fs.existsSync(path.join(b, nome))) return out(409, 'já existe ' + nome + ' do outro lado');
-          fs.renameSync(path.join(a, nome), path.join(b, nome)); return out(200, `skill ${nome} ${j.action === 'desativar' ? 'desativada' : 'ativada'}`);
+          fs.renameSync(path.join(a, nome), path.join(b, nome)); return fim(200, `skill ${nome} ${j.action === 'desativar' ? 'desativada' : 'ativada'}`);
         }
         if (j.action === 'remover') {
           const src = [path.join(ativas, nome), path.join(desat, nome)].find((x) => fs.existsSync(x)); if (!src) return out(404, 'skill não encontrada');
           const lx = path.join(p.orq, 'skills', '.lixeira'); fs.mkdirSync(lx, { recursive: true }); fs.renameSync(src, path.join(lx, `${id}-${nome}-${Date.now()}`));
-          return out(200, `skill ${nome} removida (guardada em .orquestra/skills/.lixeira)`);
+          return fim(200, `skill ${nome} removida (guardada em .orquestra/skills/.lixeira)`);
         }
         out(400, 'ação inválida');
       } catch (e) { out(400, e.message); }
@@ -1315,6 +1619,62 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === '/contas' && req.method === 'GET') {
+    if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
+    readAccounts(); const uso = usoDasContas();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    (async () => {
+      const lista = await Promise.all(ACCOUNTS.map(async (a) => {
+        const P = PROVEDORES[a.provedor] || {}; const inst = await temCli(P.cli || 'claude');
+        const logada = a.provedor === 'claude' ? !!acctInfo[a.id]?.email : !!P.logado?.(a.dir);
+        return { id: a.id, nome: a.nome || '', provedor: a.provedor, nomeProvedor: P.nome, n: a.id.replace('conta', ''), pasta: a.dir.replace(HOME, '~'), ...(acctInfo[a.id] || {}), instalado: inst, logada, modelos: P.modelos || ['sonnet', 'haiku', 'opus'], uso: uso[a.id] || [] };
+      }));
+      res.end(JSON.stringify({ contas: lista, disponiveis: Object.entries(PROVEDORES).filter(([k]) => k !== 'claude' && !ACCOUNTS.some((a) => a.id === k)).map(([k, v]) => ({ id: k, nome: v.nome })) }));
+    })();
+    return;
+  }
+  if (url.pathname === '/contas' && req.method === 'POST') {
+    if (req.headers['x-token'] !== TOKEN) { res.writeHead(403); return res.end('token'); }
+    let body = ''; req.on('data', (d) => { body += d; if (body.length > 4000) req.destroy(); });
+    req.on('end', () => {
+      const out = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: code === 200, out: msg })); };
+      let j; try { j = JSON.parse(body); } catch { return out(400, 'json'); }
+      try {
+        if (j.action === 'renomear') {
+          const a = ACCOUNTS.find((x) => x.id === j.id); if (!a) return out(404, 'conta não encontrada');
+          a.nome = String(j.nome || '').trim().slice(0, 30); salvaContas(); emitAccounts(); return out(200, a.nome ? `agora a ${a.id} se chama "${a.nome}"` : 'nome removido');
+        }
+        if (j.action === 'medir') {
+          const a = ACCOUNTS.find((x) => x.id === j.id); if (!a) return out(404, 'conta não encontrada');
+          return medirUso(a).then((u) => { emitAccounts(); out(u ? 200 : 500, u ? `medido: sessão ${u.h5 ?? '?'}% · semana ${u.d7 ?? '?'}%` : 'não consegui ler o /usage (a conta está logada? veja em "entrar")'); });
+        }
+        if (j.action === 'instalar') {
+          const a = ACCOUNTS.find((x) => x.id === j.id); const P = a && PROVEDORES[a.provedor]; if (!P?.instalar) return out(400, 'nada para instalar');
+          const cmd = P.instalar[process.platform === 'darwin' ? 'darwin' : 'outro'];
+          return execFile(process.env.SHELL || '/bin/zsh', ['-lc', cmd], { timeout: 600000, maxBuffer: 5e6 }, (err, o, se) => out(err ? 500 : 200, err ? `não instalou (${cmd}): ` + String(se || err.message).slice(-600) : `${P.nome} instalado`));
+        }
+        if (j.action === 'adicionar' && j.provedor && j.provedor !== 'claude') {
+          const P = PROVEDORES[j.provedor]; if (!P) return out(400, 'motor desconhecido'); if (ACCOUNTS.some((a) => a.id === j.provedor)) return out(409, P.nome + ' já está na lista');
+          ACCOUNTS.push({ id: j.provedor, provedor: j.provedor, dir: exp(P.home) }); salvaContas(); return out(200, `${P.nome} adicionado — agora instale (se precisar) e entre`);
+        }
+        if (j.action === 'adicionar') {
+          let n = 2; while (ACCOUNTS.some((a) => a.id === 'conta' + n)) n++;
+          const dir = path.join(HOME, '.claude-conta' + n); fs.mkdirSync(dir, { recursive: true });
+          // reaproveita skills, comandos, agentes e plugins da conta 1
+          for (const it of ['skills', 'commands', 'agents', 'plugins', 'CLAUDE.md', 'settings.json']) { const src = path.join(HOME, '.claude', it), dst = path.join(dir, it); if (fs.existsSync(src) && !fs.existsSync(dst)) try { fs.symlinkSync(src, dst); } catch {} }
+          ACCOUNTS.push({ id: 'conta' + n, dir }); salvaContas(); readAccounts(); emitAccounts();
+          return out(200, `conta ${n} criada (${dir.replace(HOME, '~')}) — agora entre nela com "Entrar / trocar login"`);
+        }
+        if (j.action === 'remover') {
+          const a = ACCOUNTS.find((x) => x.id === j.id); if (!a) return out(404, 'conta não encontrada'); if (a.id === 'conta1') return out(400, 'a conta 1 é a principal');
+          const u = usoDasContas()[a.id] || []; if (u.length) return out(400, `ainda em uso por: ${u.map((x) => x.projeto + ' · ' + x.agente).join(', ')} — troque a conta deles antes`);
+          ACCOUNTS.splice(ACCOUNTS.indexOf(a), 1); salvaContas(); emitAccounts(); return out(200, `${a.id} saiu da lista (a pasta ${a.dir.replace(HOME, '~')} não foi apagada)`);
+        }
+        out(400, 'ação inválida');
+      } catch (e) { out(500, e.message); }
+    });
+    return;
+  }
   if (url.pathname === '/predio' && req.method === 'GET') {
     if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -1331,6 +1691,23 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/token' && req.method === 'GET') {
     if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ token: TOKEN }));
+  }
+  if (url.pathname === '/andar/info' && req.method === 'GET') {
+    if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
+    const p = byId[url.searchParams.get('id') || '']; res.writeHead(p ? 200 : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify(p ? infoAndar(p) : { erro: 'andar não encontrado' }));
+  }
+  if (url.pathname === '/andar/pastas' && req.method === 'GET') {
+    // navegador de pastas para o "Adicionar andar" (funciona no navegador e em qualquer versão do app)
+    if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
+    let dir = path.resolve(exp(String(url.searchParams.get('caminho') || '').trim() || (fs.existsSync(path.join(HOME, 'Desktop', 'Developer')) ? path.join(HOME, 'Desktop', 'Developer') : HOME)));
+    if (dir !== HOME && !dir.startsWith(HOME + path.sep)) dir = HOME;
+    let itens = []; try { itens = fs.readdirSync(dir, { withFileTypes: true }); } catch {}
+    const pastas = itens.filter((d) => (d.isDirectory() || d.isSymbolicLink()) && !d.name.startsWith('.') && !['node_modules', 'Library', 'Applications'].includes(d.name)).map((d) => {
+      const f = path.join(dir, d.name); let filhos = []; try { filhos = fs.readdirSync(f); } catch {}
+      return { nome: d.name, ehRepo: fs.existsSync(path.join(f, '.git')), temRepos: filhos.some((x) => !x.startsWith('.') && fs.existsSync(path.join(f, x, '.git'))), temAndar: fs.existsSync(path.join(f, '.orquestra')) || fs.existsSync(path.join(path.dirname(f), d.name + '-orquestra', '.orquestra')) };
+    }).sort((a, b) => a.nome.localeCompare(b.nome)).slice(0, 400);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ caminho: dir.replace(HOME, '~'), acima: dir === HOME ? null : path.dirname(dir).replace(HOME, '~'), ehRepo: fs.existsSync(path.join(dir, '.git')), pastas }));
   }
   if (url.pathname === '/andar/pasta' && req.method === 'GET') {
     if (!mesmaOrigem(req)) { res.writeHead(403); return res.end(); }
@@ -1361,7 +1738,7 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ texto: achou }));
   }
-  if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: true, code: CODE_MTIME, projects: projects.map((p) => p.id), perf })); }
+  if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: true, code: CODE_MTIME, pub: PUB_MTIME, projects: projects.map((p) => p.id), perf })); }
   if (url.pathname === '/accounts') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify(accounts())); }
   if (url.pathname === '/rooms') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(rooms())); }
   if (url.pathname === '/agent' && req.method === 'POST') {
@@ -1375,18 +1752,35 @@ const server = http.createServer((req, res) => {
       reloadTeam(p);
       const ag = String(j.agent || ''), act = j.action;
       const out = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: code === 200, out: msg })); };
+      if (act === 'herdr') {
+        const alvo = ag === 'andar' ? 'andar' : ag, addr = ag === 'andar' ? (p.floorTerm || await ensureFloorTerm(p).catch(() => null)) : p.agents[ag]?.address;
+        if (!addr) return out(404, ag + ' não está no ar');
+        const r = await herdrMostrar(p, alvo, addr, rotuloHerdr(p, alvo), true);
+        if (r.ok) return out(200, r.out);
+        res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: true, manual: true, cmd: 'hc attach ' + addr, out: 'cmd' }));
+      }
+      if (act === 'visto') { (p.visto ||= {})[ag] = Date.now(); if (p.agents[ag]) delete p.agents[ag].pergunta; emit(p); return out(200, 'ok'); }
+      if (act === 'ok') { (p.ack ||= {})[ag] = true; if (p.agents[ag]?.status === 'done') { p.agents[ag].status = 'idle'; emit(p); } return out(200, 'ok — de volta a aguardando'); }
       if (ag === 'boss') {
         const b = p.agents.boss;
+        if (act === 'interromper') {
+          if (!b) return out(200, 'o Boss não está no ar');
+          await hcRun(['interrupt', b.address]); await sleep(600); await hcRun(['interrupt', b.address]); await sleep(800); pollHc();
+          logEvent(p, { from: 'voce', to: 'boss', kind: 'servico', text: 'Ctrl-C no terminal do andar' });
+          return out(200, 'Ctrl-C enviado — a subida parou. Agora é só chamar o Boss de novo.');
+        }
         if (act === 'stop' || act === 'restart') {
           if (!b) { if (act === 'stop') return out(200, 'o Boss já está fora do ar'); }
-          else { if (b.status === 'working') await hcRun(['interrupt', b.address]); await sleep(800); await hcRun(['send', b.address, '/exit']); for (let i = 0; i < 20 && p.agents.boss; i++) { await sleep(500); pollHc(); } }
+          else if (!/claude|node/.test(b.fg || '')) { // travado na subida (boss.sh) ou num shell: Ctrl-C limpa o que foi digitado e para o script
+            await hcRun(['interrupt', b.address]); await sleep(600); await hcRun(['interrupt', b.address]); for (let i = 0; i < 10 && p.agents.boss; i++) { await sleep(500); pollHc(); }
+          } else { if (b.status === 'working') await hcRun(['interrupt', b.address]); await sleep(800); await hcRun(['send', b.address, '/exit']); for (let i = 0; i < 20 && p.agents.boss; i++) { await sleep(500); pollHc(); } }
           if (act === 'stop') { logEvent(p, { from: 'voce', to: 'boss', kind: 'servico', text: 'dispensar o Boss' }); return out(200, 'Boss dispensado (o terminal do andar continua aberto)'); }
         }
         try { const m = await iniciarBoss(p); return out(200, m); } catch (e) { return out(500, e.message + `\n\nOu, num terminal do Herdr, rode: ${p.atalho}`); }
       }
       const daEquipe = p.team.includes(ag), extra = /^dev-[\w-]+$/.test(ag) && !!p.agents[ag];
       if (!daEquipe && !extra) return out(404, ag + ' não é da equipe deste projeto');
-      const nomeHc = p.id + '-' + ag, vivo = !!p.agents[ag];
+      const nomeHc = tnHc(p, ag), vivo = !!p.agents[ag];
       if (act === 'stop' || act === 'restart') {
         try { const cur = sessionsOf(p, ag)[0]; if (cur && vivo) saveSession(cur); } catch {}
         if (vivo) { await hcRun(['interrupt', nomeHc]); await new Promise((r) => setTimeout(r, 1200)); await hcRun(['kill', nomeHc]); }
@@ -1400,7 +1794,9 @@ const server = http.createServer((req, res) => {
         execFile(path.join(p.orq, 'bin', 'equipe.sh'), ['--so', ag], { env, timeout: 90000, maxBuffer: 2e6 }, (err, o, se) => {
           logEvent(p, { from: 'voce', to: ag, kind: 'servico', text: (act === 'start' ? 'chamar ' : 'reiniciar ') + ag });
           setTimeout(pollHc, 1500);
-          out(err ? 500 : 200, String(o || '') + String(se || '') || (err && err.message) || 'ok');
+          const saida = String(o || '') + String(se || ''), falhou = err || /não subiu/.test(saida);
+          const motivo = (saida.match(/"message":"([^"]+)"/) || [])[1];
+          out(falhou ? 500 : 200, falhou ? `${ag} não subiu${motivo ? ': ' + motivo : ''}\n\n${saida.slice(-600)}` : saida || 'ok');
         });
         return;
       }
@@ -1457,20 +1853,58 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === '/pergunta' && req.method === 'GET') {
+    const p = projOf(url), a = p?.agents[url.searchParams.get('agent') || ''];
+    if (!a) { res.writeHead(404); return res.end('agente não está no ar'); }
+    (async () => { const r = lerPergunta(await telaDe(a.address)); res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ ...r, status: a.status })); })(); return;
+  }
+  if (url.pathname === '/responder' && req.method === 'POST') {
+    if (req.headers['x-token'] !== TOKEN) { res.writeHead(403); return res.end('token'); }
+    let body = ''; req.on('data', (d) => { body += d; if (body.length > 20000) req.destroy(); });
+    req.on('end', async () => {
+      const out = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: code === 200, out: msg })); };
+      let j; try { j = JSON.parse(body); } catch { return out(400, 'json'); }
+      const p = byId[j.project], a = p?.agents[j.agent]; if (!a) return out(404, 'agente não está no ar');
+      const q = lerPergunta(await telaDe(a.address)), texto = String(j.texto || '').trim();
+      const vai = async (n) => { const i = q.opcoes.findIndex((o) => o.n === n), cur = Math.max(0, q.opcoes.findIndex((o) => o.atual)); if (i < 0) return false; const d = i - cur; const ks = Array(Math.abs(d)).fill(d > 0 ? 'down' : 'up'); if (ks.length) await hcRun(['keys', a.address, ...ks]); return true; };
+      if (j.esc) { await hcRun(['keys', a.address, 'esc']); logEvent(p, { from: 'voce', to: j.agent, kind: 'user', text: '(cancelou a pergunta)' }); return out(200, 'cancelado'); }
+      if (j.opcao != null && !texto) {
+        if (!(await vai(+j.opcao))) return out(409, 'a pergunta mudou — abra de novo');
+        await sleep(150); await hcRun(['keys', a.address, 'enter']);
+        const o = q.opcoes.find((x) => x.n === +j.opcao); logEvent(p, { from: 'voce', to: j.agent, kind: 'user', text: `resposta: ${o?.texto || j.opcao}` });
+        setTimeout(pollHc, 800); return out(200, 'respondido: ' + (o?.texto || j.opcao));
+      }
+      if (texto) {
+        const livre = q.opcoes.find((o) => /type something|digite|outro|other/i.test(o.texto));
+        if (livre) { await vai(livre.n); await sleep(150); }
+        const r = await hcRun(['send', '--force', a.address, texto]);
+        logEvent(p, { from: 'voce', to: j.agent, kind: 'user', text: texto.slice(0, 20000) }); setTimeout(pollHc, 800);
+        return out(r.ok ? 200 : 500, r.ok ? 'resposta enviada' : r.out.slice(0, 300));
+      }
+      out(400, 'escolha uma opção ou escreva a resposta');
+    });
+    return;
+  }
   if (url.pathname === '/send' && req.method === 'POST') {
     if (req.headers['x-token'] !== TOKEN) { res.writeHead(403); return res.end('token'); }
     let body = '';
     req.on('data', (d) => { body += d; if (body.length > 20000) req.destroy(); });
-    req.on('end', () => {
+    req.on('end', async () => {
       let j; try { j = JSON.parse(body); } catch { res.writeHead(400); return res.end('json'); }
       const p = byId[j.project] || projects[0];
       const a = p.agents[j.agent];
       const text = String(j.text || '').trim();
       if (!a || !text) { res.writeHead(404); return res.end('agente não está vivo'); }
-      if (a.status === 'blocked') { res.writeHead(409); return res.end('esse agente está esperando uma aprovação no Herdr — responda lá primeiro (senão a mensagem cairia na pergunta)'); }
+      if (a.status === 'starting' || /^-?(zsh|bash|sh|fish|dash)$/.test(a.fg || '')) { res.writeHead(409); return res.end(a.status === 'starting' ? 'o ' + j.agent + ' ainda está subindo — espere ele ficar "aguardando" e mande de novo' : 'o ' + j.agent + ' não está rodando (só o terminal está aberto) — use reiniciar no card dele'); }
+      if (a.status === 'blocked') { res.writeHead(409, { 'X-Orq': 'bloqueado' }); return res.end('esse agente está esperando você responder uma pergunta/aprovação — responda pelo botão "responder" (senão a mensagem cairia na pergunta)'); }
+      // tela de confiança/aprovação do Claude aberta? a mensagem cairia nela (e o Enter poderia escolher uma opção)
+      const tela = await new Promise((ok) => execFile(HC, ['read', a.address, '--lines', '30'], { timeout: 5000 }, (e, o2) => ok(String(o2 || ''))));
+      if (/one you trust\?|Do you trust the files|Enter to confirm · Esc to cancel/i.test(tela)) { res.writeHead(409); return res.end(`o ${j.agent} está numa tela de confirmação do Claude (ex.: "confiar nesta pasta?") — responda na aba Terminal (ou no Herdr) e mande de novo`); }
+      // Claude ainda carregando (sem a caixa de digitar): a mensagem se perderia
+      if (/Claude Code v/.test(tela) && !/❯/.test(tela) && a.status !== 'working') { res.writeHead(409); return res.end(`o ${j.agent} ainda está carregando — espere alguns segundos e mande de novo`); }
       execFile(HC, ['send', a.address, text], { timeout: 20000 }, (err, _o, se) => {
         if (err) { res.writeHead(500); return res.end(String(se || err.message).slice(0, 300)); }
-        fs.appendFileSync(p.eventsFile, JSON.stringify({ ts: Date.now(), from: 'voce', to: j.agent, kind: 'user', text: text.slice(0, 220) }) + '\n');
+        fs.appendFileSync(p.eventsFile, JSON.stringify({ ts: Date.now(), from: 'voce', to: j.agent, kind: 'user', text: text.slice(0, 20000) }) + '\n');
         res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');
       });
     });
@@ -1501,4 +1935,23 @@ scanAcctTimes(); setInterval(scanAcctTimes, 60000);
 setInterval(emitAccounts, 5000);
 setInterval(() => broadcastAll('ping', {}), 15000);
 server.on('upgrade', (req, sock) => { const url = new URL(req.url, 'http://x'); if (url.pathname === '/term') openTerm(req, sock, url); else sock.destroy(); });
+// porta ocupada (o servidor antigo ainda saindo, numa atualização): tenta de novo por alguns segundos
+let tentaPorta = 0;
+server.on('error', (e) => { if (e.code === 'EADDRINUSE' && tentaPorta++ < 60) return setTimeout(() => server.listen(PORT, '127.0.0.1'), 250); console.error(e); process.exit(1); });
 server.listen(PORT, '127.0.0.1', () => console.log(`Orquestra (${projects.map((p) => p.id).join(', ')}) em http://localhost:${PORT}`));
+
+// ---------- atualização sozinha: código novo do servidor -> ele mesmo se reinicia; tela nova -> avisa quem está com o Orquestra aberto ----------
+const PUB_DIR = path.join(DIR, 'public');
+const pubMtime = () => { let m = 0; try { for (const f of fs.readdirSync(PUB_DIR)) { if (!/\.(js|html|css)$/.test(f)) continue; m = Math.max(m, fs.statSync(path.join(PUB_DIR, f)).mtimeMs); } } catch {} return Math.floor(m); };
+let PUB_MTIME = pubMtime(), reiniciando = false;
+function reiniciaSozinho() {
+  if (reiniciando) return; reiniciando = true;
+  console.log('[orquestra] código do servidor mudou — reiniciando sozinho');
+  try { const ch = spawn(process.execPath, process.argv.slice(1), { cwd: process.cwd(), env: process.env, detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); ch.unref(); } catch (e) { console.error('não consegui reiniciar:', e.message); reiniciando = false; return; }
+  try { server.close(); } catch {} setTimeout(() => process.exit(0), 400);
+}
+setInterval(() => {
+  let m = 0; try { m = Math.floor(fs.statSync(fileURLToPath(import.meta.url)).mtimeMs); } catch {}
+  if (m > CODE_MTIME + 1000) return reiniciaSozinho();
+  const pm = pubMtime(); if (pm > PUB_MTIME + 500) { PUB_MTIME = pm; broadcastAll('atualizou', { pub: pm }); }
+}, 4000);
